@@ -14,7 +14,7 @@ Unfamiliar repositories often expose several plausible launch routes through pac
 | Python | `[project.scripts]` in `pyproject.toml` | installed console script |
 | Rust | `[package]` in `Cargo.toml` | `cargo run` |
 | MoonBit | `moon.mod` plus `cmd/main/moon.pkg` | `moon run cmd/main` |
-| Docker | `Dockerfile` and `CMD`/`ENTRYPOINT` | build and run candidate |
+| Docker | executable `CMD`/`ENTRYPOINT` instructions, excluding comments | build and run candidate |
 | Compose | four conventional `compose`/`docker-compose` YAML names | `docker compose up --build` |
 
 The first release intentionally scans known root-level manifests only. It does not execute arbitrary code or claim to understand free-form README instructions.

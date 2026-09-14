@@ -254,29 +254,53 @@ fn add_container_candidates(
     })
   }
   guard find_file(files, "Dockerfile") is Some(file) else { return }
-  let marker : StringView = if file.content.contains("CMD") {
-    "CMD"
-  } else if file.content.contains("ENTRYPOINT") {
-    "ENTRYPOINT"
-  } else {
-    "FROM"
+  let mut runtime_instruction = ""
+  let mut runtime_evidence = evidence(file, "FROM")
+  let mut current_line = 0
+  for raw_line in file.content.split("\n") {
+    current_line = current_line + 1
+    let line = raw_line.trim(chars=" \t\r").to_owned()
+    let upper = line.to_upper()
+    if !line.has_prefix("#") &&
+      (
+        upper.has_prefix("CMD ") ||
+        upper.has_prefix("CMD[") ||
+        upper.has_prefix("ENTRYPOINT ") ||
+        upper.has_prefix("ENTRYPOINT[")
+      ) {
+      runtime_instruction = if upper.has_prefix("CMD") {
+        "CMD"
+      } else {
+        "ENTRYPOINT"
+      }
+      runtime_evidence = { file: file.path, line: current_line, excerpt: line, }
+      break
+    }
+  }
+  if runtime_instruction.is_empty() {
+    findings.push({
+      level: "warning",
+      code: "dockerfile-no-runtime-command",
+      message: "Dockerfile has no executable CMD or ENTRYPOINT instruction; the image may require a command at runtime.",
+      file: file.path,
+    })
   }
   candidates.push({
     ecosystem: "docker",
     command: "docker build -t reporoute-app . && docker run --rm reporoute-app",
     workdir: ".",
-    confidence: if marker == "FROM" {
+    confidence: if runtime_instruction.is_empty() {
       70
     } else {
       88
     },
     prerequisites: ["Docker"],
-    reason: if marker == "FROM" {
+    reason: if runtime_instruction.is_empty() {
       "Dockerfile exists but has no explicit CMD or ENTRYPOINT."
     } else {
-      "Dockerfile contains an explicit \{marker} instruction."
+      "Dockerfile contains an explicit \{runtime_instruction} instruction."
     },
-    evidence: evidence(file, marker),
+    evidence: runtime_evidence,
   })
 }
 

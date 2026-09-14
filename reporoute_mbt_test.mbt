@@ -114,3 +114,27 @@ test "Compose variants use stable precedence and services evidence" {
   assert_eq(contract.candidates[0].evidence.line, 3)
   assert_eq(contract.findings[0].code, "multiple-compose-files")
 }
+
+///|
+test "Dockerfile comments do not masquerade as runtime instructions" {
+  let contract = @reporoute_mbt.scan("fixture/docker", [
+    @reporoute_mbt.source_file(
+      "Dockerfile", "FROM alpine\n# CMD is intentionally omitted\nRUN echo ready\n",
+    ),
+  ])
+  assert_eq(contract.candidates[0].confidence, 70)
+  assert_eq(contract.candidates[0].evidence.line, 1)
+  assert_eq(contract.findings[0].code, "dockerfile-no-runtime-command")
+}
+
+///|
+test "Docker runtime evidence follows the first real instruction" {
+  let contract = @reporoute_mbt.scan("fixture/docker-entrypoint", [
+    @reporoute_mbt.source_file(
+      "Dockerfile", "FROM alpine\nRUN echo CMD\nENTRYPOINT [\"/app\"]\nCMD [\"serve\"]\n",
+    ),
+  ])
+  assert_eq(contract.candidates[0].confidence, 88)
+  assert_eq(contract.candidates[0].evidence.line, 3)
+  assert_true(contract.candidates[0].reason.contains("ENTRYPOINT"))
+}
