@@ -23,6 +23,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $root $file) -Destination $packageRoot
     }
     Copy-Item -LiteralPath (Join-Path $root 'scripts/bootstrap.ps1') -Destination (Join-Path $packageRoot 'scripts')
+    foreach ($batch in Get-ChildItem -LiteralPath $packageRoot -Filter '*.bat' -File) {
+        $text = [IO.File]::ReadAllText($batch.FullName)
+        [IO.File]::WriteAllText($batch.FullName, ($text -replace "`r?`n", "`r`n"), [Text.UTF8Encoding]::new($false))
+    }
     # Only tracked fixture files; never copy node_modules, virtualenvs or runtime reports.
     $fixtures = & git ls-files examples
     foreach ($relative in $fixtures) {

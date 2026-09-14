@@ -3,6 +3,10 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+foreach ($name in @('点我启动RepoWayfinder-MB.bat','首次运行失败时点我修复环境.bat')) {
+    $batchText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot ('../' + $name)))
+    if ($batchText -match '(?<!\r)\n') { throw "Windows BAT must use CRLF: $name" }
+}
 
 $bootstrap = Join-Path $PSScriptRoot 'bootstrap.ps1'
 $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("repowayfinder-bootstrap-test-" + [Guid]::NewGuid().ToString('N'))
