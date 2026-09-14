@@ -1,0 +1,46 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "qybl658/repowayfinder_mbt/host"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn app_root() -> String
+
+pub fn command(String, Array[String], String) -> Result[(String, Array[String]), String]
+
+pub fn decode_output(Bytes) -> String
+
+pub fn join(String, String) -> String
+
+pub async fn prompt(String) -> Bool
+
+pub fn redact(String) -> String
+
+pub fn resolve(String) -> String?
+
+pub async fn run(String, Array[String], String, Int, on_output? : (String) -> Unit) -> CommandResult
+
+pub fn safe_env() -> Map[String, String]
+
+pub fn sensitive_name(String) -> Bool
+
+pub fn tool_root() -> String
+
+pub fn windows() -> Bool
+
+pub fn windows_launcher(String, Array[String], String, Bool) -> String
+
+// Errors
+
+// Types and methods
+pub(all) struct CommandResult {
+  code : Int
+  output : String
+  timed_out : Bool
+} derive(Eq, ToJson, @debug.Debug)
+
+// Type aliases
+
+// Traits

@@ -11,7 +11,7 @@
 
 name = "qybl658/repowayfinder_mbt"
 
-version = "0.1.0"
+version = "0.2.0"
 
 readme = "README.md"
 
@@ -23,8 +23,9 @@ keywords = [ "repository", "cli", "launch", "evidence", "devtools" ]
 
 preferred_target = "native"
 
-description = "Evidence-backed repository launch entrypoint discovery in MoonBit"
+description = "Evidence-backed repository deployment, environment preparation and runtime verification in MoonBit"
 
 import {
   "moonbitlang/x@0.5.5",
+  "moonbitlang/async@0.21.3",
 }

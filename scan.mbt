@@ -123,7 +123,7 @@ fn add_node_candidates(
     return
   }
   let (manager, prerequisite) = package_manager(files, findings)
-  let names = ["start", "dev", "serve", "preview"]
+  let names = ["start", "dev", "serve", "preview", "demo", "example", "test"]
   for name in names {
     if scripts.get(name) is Some(String(script)) {
       if script.trim(chars=" \t\r\n").is_empty() {
@@ -324,6 +324,42 @@ pub fn scan(root : String, files : Array[SourceFile]) -> RunContract {
   let findings : Array[Finding] = []
   add_node_candidates(files, candidates, findings)
   add_python_candidates(files, candidates)
+  for name in ["Procfile.windows", "Procfile"] {
+    if find_file(files, name) is Some(file) {
+      for line in file.content.split("\n") {
+        if line.trim().has_prefix("web:") {
+          let command = line.trim()[4:].trim().to_owned()
+          if safe_python_command(command) is Some(_) {
+            candidates.push({
+              ecosystem: "python-command",
+              command,
+              workdir: ".",
+              confidence: 92,
+              prerequisites: ["Python"],
+              reason: "Explicit Procfile web command.",
+              evidence: evidence(file, "web:"),
+            })
+          }
+        }
+      }
+    }
+  }
+  if !candidates.any(c => c.ecosystem == "python") {
+    for name in ["main.py", "app.py"] {
+      if find_file(files, name) is Some(file) &&
+        file.content.contains("__main__") {
+        candidates.push({
+          ecosystem: "python-file",
+          command: name,
+          workdir: ".",
+          confidence: 80,
+          prerequisites: ["Python"],
+          reason: "Python file declares a __main__ entrypoint.",
+          evidence: evidence(file, "__main__"),
+        })
+      }
+    }
+  }
   add_manifest_candidate(
     files, "Cargo.toml", "[package]", "rust", "cargo run", "Rust and Cargo", "Cargo package manifest declares a runnable package.",
     85, candidates,

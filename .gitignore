@@ -4,3 +4,15 @@ target/
 target
 .mooncakes/
 .moonagent/
+.repowayfinder-tools/
+.repowayfinder-reports/
+.repowayfinder-workspace/
+**/.repowayfinder-venv/
+**/node_modules/
+.repowayfinder-settings.json
+dist/
+/run.md
+/run.previous.*.md
+.repowayfinder-mode.json
+.env
+config.toml

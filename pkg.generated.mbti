@@ -1,0 +1,85 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "qybl658/repowayfinder_mbt"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn local_health_url(String) -> Bool
+
+pub fn plan_deployment(RunContract, Array[SourceFile], Int?, Bool) -> Result[DeploymentPlan, String]
+
+pub fn render_json(RunContract) -> String
+
+pub fn render_markdown(RunContract) -> String
+
+pub fn safe_entry_name(String) -> Bool
+
+pub fn safe_python_command(String) -> Array[String]?
+
+pub fn scan(String, Array[SourceFile]) -> RunContract
+
+pub fn security_review(Array[SourceFile], String, Bool) -> Array[Finding]
+
+pub fn source_file(String, String) -> SourceFile
+
+pub fn validate_compose(Json, Bool) -> Result[Bool, String]
+
+// Errors
+
+// Types and methods
+pub(all) struct Candidate {
+  ecosystem : String
+  command : String
+  workdir : String
+  confidence : Int
+  prerequisites : Array[String]
+  reason : String
+  evidence : Evidence
+} derive(Eq, @debug.Debug)
+
+pub(all) struct DeploymentPlan {
+  root : String
+  candidate_index : Int
+  candidate : Candidate
+  steps : Array[DeploymentStep]
+  warnings : Array[String]
+} derive(Eq, @debug.Debug)
+pub fn DeploymentPlan::to_json(Self) -> Json
+
+pub(all) struct DeploymentStep {
+  phase : String
+  program : String
+  args : Array[String]
+} derive(Eq, ToJson, @debug.Debug)
+
+pub(all) struct Evidence {
+  file : String
+  line : Int
+  excerpt : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Finding {
+  level : String
+  code : String
+  message : String
+  file : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct RunContract {
+  schema_version : Int
+  root : String
+  candidates : Array[Candidate]
+  findings : Array[Finding]
+} derive(Eq, @debug.Debug)
+pub fn RunContract::to_json(Self) -> Json
+
+pub(all) struct SourceFile {
+  path : String
+  content : String
+} derive(Eq, @debug.Debug)
+
+// Type aliases
+
+// Traits
