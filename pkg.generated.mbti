@@ -30,7 +30,7 @@ pub fn security_review(Array[SourceFile], String, Bool) -> Array[Finding]
 
 pub fn source_file(String, String) -> SourceFile
 
-pub fn validate_compose(Json, Bool) -> Result[Bool, String]
+pub fn validate_compose(Json, Bool, approved_bind_sources? : Array[String]) -> Result[Bool, String]
 
 // Errors
 

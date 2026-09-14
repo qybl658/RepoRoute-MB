@@ -53,6 +53,7 @@ pub fn security_review(
 pub fn validate_compose(
   config : Json,
   protected_mode : Bool,
+  approved_bind_sources? : Array[String] = [],
 ) -> Result[Bool, String] {
   guard config is Object(root) &&
     root.get("services") is Some(Object(services)) &&
@@ -81,6 +82,12 @@ pub fn validate_compose(
     }
     if fields.get("volumes") is Some(Array(volumes)) {
       for volume in volumes {
+        if volume is Object(bind) &&
+          bind.get("type") == Some(Json("bind")) &&
+          bind.get("source") is Some(String(source)) &&
+          approved_bind_sources.contains(source) {
+          continue
+        }
         if volume is Object(fields) &&
           fields.get("type") == Some(Json("volume")) {
           continue

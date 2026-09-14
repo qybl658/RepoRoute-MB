@@ -313,6 +313,11 @@ pub fn plan_deployment(
         ],
       })
       steps.push({
+        phase: "build",
+        program: "docker",
+        args: ["compose", "-f", candidate.evidence.file, "build"],
+      })
+      steps.push({
         phase: "start",
         program: "docker",
         args: [
@@ -320,7 +325,6 @@ pub fn plan_deployment(
           "-f",
           candidate.evidence.file,
           "up",
-          "--build",
           "--abort-on-container-failure",
         ],
       })

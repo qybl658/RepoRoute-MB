@@ -263,7 +263,7 @@ async fn probe(program : String, cwd : String) -> Probe {
       name,
       executable: None,
       state: "missing",
-      detail: "Executable not found.",
+      detail: "未找到可执行文件。",
     }
   }
   let result = @host.run(executable, version_args(name), cwd, 15000)
@@ -273,14 +273,14 @@ async fn probe(program : String, cwd : String) -> Probe {
         name,
         executable: Some(executable),
         state: "ready",
-        detail: "WSL status probe succeeded without install, kernel-update, or virtualization blockers. Distribution choice and any pending restart remain user-owned.",
+        detail: "WSL 状态检查通过，未发现需要安装、更新内核或处理虚拟化的阻塞项。Linux 发行版选择和任何待重启操作仍由你决定。",
       }
     }
     return {
       name,
       executable: Some(executable),
       state: "waiting_environment",
-      detail: "WSL command is present, but status indicates installation, kernel update, virtualization/Virtual Machine Platform, restart, or another user-owned setup is still required.\n" +
+      detail: "已找到 WSL 命令，但状态表明仍需安装、更新内核、配置虚拟化/虚拟机平台、重启，或完成其他需要你处理的设置。\n" +
       result.output,
     }
   }
@@ -295,7 +295,7 @@ async fn probe(program : String, cwd : String) -> Probe {
       name,
       executable: Some(executable),
       state: "missing",
-      detail: "Windows exposes a Python launcher/Store alias, but its runtime probe failed. The launcher is preserved; a separate application-local Python may be prepared.\n" +
+      detail: "Windows 提供了 Python 启动器或应用商店别名，但运行时检查失败。现有启动器会保留，RepoWayfinder 可以另行准备应用内置的 Python。\n" +
       result.output,
     }
   }
@@ -313,7 +313,7 @@ async fn probe(program : String, cwd : String) -> Probe {
             name,
             executable: Some(executable),
             state: "missing",
-            detail: "Docker CLI exists, but neither a daemon nor the Docker Desktop management interface is available. Docker Desktop is still a missing runtime; the CLI alone is insufficient.\n" +
+            detail: "已找到 Docker CLI，但 Docker 守护进程和 Docker Desktop 管理接口都不可用。当前仍缺少可用的 Docker Desktop 运行环境；只有 CLI 还不够。\n" +
             daemon.output +
             "\n" +
             desktop.output,
@@ -325,7 +325,7 @@ async fn probe(program : String, cwd : String) -> Probe {
         executable: Some(executable),
         state: "waiting_environment",
         detail: result.output +
-        "\nDocker CLI is installed, but Docker Desktop/daemon is not ready. Start Docker Desktop, complete its license and WSL/virtualization setup yourself, then retry.\n" +
+        "\nDocker CLI 已安装，但 Docker Desktop/守护进程尚未就绪。请启动 Docker Desktop，并自行完成许可确认及 WSL/虚拟化设置，然后重试。\n" +
         daemon.output,
       }
     }
@@ -354,7 +354,7 @@ fn ensure_tool_root() -> Bool {
     true
   } catch {
     _ => {
-      println("Cannot create application-local tool directory: \{root}.")
+      println("无法创建应用本地工具目录：\{root}。")
       false
     }
   }
@@ -382,7 +382,9 @@ fn write_receipt(
     true
   } catch {
     _ => {
-      println("Installed, but could not write the ownership receipt.")
+      println(
+        "安装已完成，但无法写入归属收据，因此不会将其认定为 RepoWayfinder 所有。",
+      )
       false
     }
   }
@@ -498,7 +500,7 @@ fn remove_receipt(program : String) -> Unit {
   let path = receipt_path(program)
   if @fs.path_exists(path) {
     @fs.remove_file(path) catch {
-      _ => println("Could not remove receipt \{path}.")
+      _ => println("无法删除归属收据：\{path}。")
     }
   }
 }
@@ -600,7 +602,7 @@ async fn download_bounded(
   }
   guard @host.resolve("powershell") is Some(powershell) else {
     println(
-      "WAITING_ENVIRONMENT: PowerShell is required for verified downloads.",
+      "WAITING_ENVIRONMENT: 需要 PowerShell 才能执行经过校验的下载。",
     )
     return false
   }
@@ -627,7 +629,7 @@ async fn download_bounded(
   let partial = destination + ".part"
   if @fs.path_exists(partial) {
     println(
-      "WAITING_ENVIRONMENT: a prior bounded download is unresolved; preserving it instead of overwriting: " +
+      "WAITING_ENVIRONMENT: 上一次限量下载留下的状态尚未处理；为避免覆盖，已保留：" +
       partial,
     )
     return false
@@ -635,22 +637,22 @@ async fn download_bounded(
   let script =
     #|& { param($url,$partial,$destination,[int64]$minimum,[int64]$maximum)
     #|$ErrorActionPreference='Stop'
-    #|if (-not $url.StartsWith('https://',[StringComparison]::Ordinal)) { throw 'HTTPS required' }
+    #|if (-not $url.StartsWith('https://',[StringComparison]::Ordinal)) { throw '仅允许 HTTPS 下载' }
     #|$request=[Net.HttpWebRequest]::Create($url)
     #|$request.AllowAutoRedirect=$true; $request.MaximumAutomaticRedirections=5
     #|$request.UserAgent='RepoWayfinder-MB prerequisite bootstrap'
     #|$response=$null; $input=$null; $output=$null
     #|try {
     #|  $response=$request.GetResponse()
-    #|  if ($response.ContentLength -gt $maximum) { throw 'Content-Length exceeds byte ceiling' }
+    #|  if ($response.ContentLength -gt $maximum) { throw '下载内容长度超过上限' }
     #|  $input=$response.GetResponseStream()
     #|  $output=[IO.File]::Open($partial,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     #|  $buffer=New-Object byte[] 65536; [int64]$total=0
     #|  while (($read=$input.Read($buffer,0,$buffer.Length)) -gt 0) {
-    #|    $total += $read; if ($total -gt $maximum) { throw 'download exceeds byte ceiling' }
+    #|    $total += $read; if ($total -gt $maximum) { throw '实际下载大小超过上限' }
     #|    $output.Write($buffer,0,$read)
     #|  }
-    #|  if ($total -lt $minimum) { throw 'download is below byte floor' }
+    #|  if ($total -lt $minimum) { throw '实际下载大小低于下限' }
     #|} finally {
     #|  if ($output) { $output.Dispose() }; if ($input) { $input.Dispose() }; if ($response) { $response.Dispose() }
     #|}
@@ -675,7 +677,7 @@ async fn download_bounded(
   )
   if result.code != 0 || result.timed_out || !@fs.path_exists(destination) {
     println(
-      "WAITING_ENVIRONMENT: bounded official download failed; no installer/archive was executed.\n" +
+      "WAITING_ENVIRONMENT: 官方文件的限量下载失败；没有执行任何安装器或压缩包。\n" +
       result.output,
     )
     return false
@@ -712,7 +714,7 @@ async fn extract_portable_zip(
 ) -> Bool {
   if @fs.path_exists(target) || @fs.path_exists(target + ".extracting") {
     println(
-      "WAITING_ENVIRONMENT: portable target or preserved extraction state already exists; nothing was overwritten: " +
+      "WAITING_ENVIRONMENT: 便携工具目标目录或之前保留的解压状态已经存在；没有覆盖任何内容：" +
       target,
     )
     return false
@@ -727,16 +729,16 @@ async fn extract_portable_zip(
     #|$zip=[IO.Compression.ZipFile]::OpenRead($archive)
     #|try {
     #|  foreach ($entry in $zip.Entries) {
-    #|    if ([IO.Path]::IsPathRooted($entry.FullName)) { throw 'rooted zip entry rejected' }
+    #|    if ([IO.Path]::IsPathRooted($entry.FullName)) { throw '已拒绝包含绝对路径的 ZIP 条目' }
     #|    $candidate=[IO.Path]::GetFullPath((Join-Path $stage $entry.FullName))
-    #|    if (-not $candidate.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)) { throw 'zip path escape rejected' }
+    #|    if (-not $candidate.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)) { throw '已拒绝越出目标目录的 ZIP 路径' }
     #|  }
     #|} finally { $zip.Dispose() }
     #|[IO.Compression.ZipFile]::ExtractToDirectory($archive,$stage)
     #|$source=$stage
     #|if (-not (Test-Path -LiteralPath (Join-Path $source $expected) -PathType Leaf)) {
     #|  $items=@(Get-ChildItem -LiteralPath $stage -Force)
-    #|  if ($items.Count -ne 1 -or -not $items[0].PSIsContainer -or -not (Test-Path -LiteralPath (Join-Path $items[0].FullName $expected) -PathType Leaf)) { throw 'archive layout mismatch' }
+    #|  if ($items.Count -ne 1 -or -not $items[0].PSIsContainer -or -not (Test-Path -LiteralPath (Join-Path $items[0].FullName $expected) -PathType Leaf)) { throw '压缩包目录结构与预期不符' }
     #|  $source=$items[0].FullName
     #|}
     #|Move-Item -LiteralPath $source -Destination $target
@@ -757,7 +759,7 @@ async fn extract_portable_zip(
     true
   } else {
     println(
-      "WAITING_ENVIRONMENT: safe portable extraction failed. Partial state was preserved for inspection and will not be overwritten.\n" +
+      "WAITING_ENVIRONMENT: 便携工具安全解压失败。已保留不完整状态供检查，后续不会自动覆盖。\n" +
       result.output,
     )
     false
@@ -797,11 +799,11 @@ fn portable_moonbit_installer(source : String) -> String? {
     #|}
   let portable_path_block =
     #|if ($env:Path -split ';' -notcontains $MoonBin) {
-    #|  Write-Output "MoonBit installed in an application-local directory."
-    #|  Write-Output "PATH was not changed. RepoWayfinder supplies it only to child processes."
+    #|  Write-Output "MoonBit 已安装到应用本地目录。"
+    #|  Write-Output "未修改 PATH；RepoWayfinder 只会为其子进程临时提供该路径。"
     #|}
     #|else {
-    #|  Write-Output "Moonbit installed successfully."
+    #|  Write-Output "MoonBit 安装成功。"
     #|}
   // The reviewed official script currently uses the archive path exactly three
   // times and contains exactly one persistent user-PATH block. Any source drift
@@ -831,14 +833,14 @@ fn portable_moonbit_installer(source : String) -> String? {
 async fn install_moonbit(cwd : String) -> Bool {
   guard @host.windows() else {
     println(
-      "MoonBit automatic bootstrap is currently implemented only for Windows. Install MoonBit from the official download page and retry.",
+      "MoonBit 自动准备目前仅支持 Windows。请从 MoonBit 官方下载页安装后重试。",
     )
     return false
   }
   guard ensure_tool_root() else { return false }
   guard @host.resolve("powershell") is Some(powershell) else {
     println(
-      "WAITING_ENVIRONMENT: Windows PowerShell is unavailable, so the official MoonBit installer source cannot be downloaded and inspected.",
+      "WAITING_ENVIRONMENT: Windows PowerShell 不可用，无法下载并检查 MoonBit 官方安装脚本源码。",
     )
     return false
   }
@@ -846,14 +848,14 @@ async fn install_moonbit(cwd : String) -> Bool {
   let moon_home = join(@host.tool_root(), "moon")
   if @fs.path_exists(moon_home) {
     println(
-      "WAITING_ENVIRONMENT: the intended application-local MoonBit directory already exists but no working moon executable was found. It may contain a partial or user-modified install, so RepoWayfinder will not overwrite it: " +
+      "WAITING_ENVIRONMENT: 预定的 MoonBit 应用本地目录已经存在，但没有找到可用的 moon 可执行文件。该目录可能是不完整安装或已被修改，RepoWayfinder 不会覆盖它：" +
       moon_home,
     )
     return false
   }
   guard powershell_literal(official_moonbit_installer_url) is Some(url) &&
     powershell_literal(script_path) is Some(destination) else {
-    println("Unsupported characters in MoonBit bootstrap path.")
+    println("MoonBit 准备路径中含有不支持的字符。")
     return false
   }
   if !@fs.path_exists(script_path) {
@@ -874,7 +876,7 @@ async fn install_moonbit(cwd : String) -> Bool {
     )
     if download.code != 0 || download.timed_out || !@fs.path_exists(script_path) {
       println(
-        "WAITING_ENVIRONMENT: Could not download the official MoonBit installer source. No installer was executed.\n" +
+        "WAITING_ENVIRONMENT: 无法下载 MoonBit 官方安装脚本源码；没有执行安装器。\n" +
         download.output,
       )
       return false
@@ -883,14 +885,14 @@ async fn install_moonbit(cwd : String) -> Bool {
   let source = @fs.read_file_to_string(script_path) catch {
     _ => {
       println(
-        "Downloaded MoonBit installer could not be read; it was not executed.",
+        "无法读取已下载的 MoonBit 安装脚本，因此没有执行它。",
       )
       return false
     }
   }
   guard portable_moonbit_installer(source) is Some(portable_source) else {
     println(
-      "The downloaded MoonBit installer did not match the exact reviewed portable transformation; it was not executed. Inspect: " +
+      "已下载的 MoonBit 安装脚本与经过审查的便携化转换规则不完全匹配，因此没有执行。请检查：" +
       script_path,
     )
     return false
@@ -903,14 +905,14 @@ async fn install_moonbit(cwd : String) -> Bool {
     let existing = @fs.read_file_to_string(portable_script_path) catch {
       _ => {
         println(
-          "Existing transformed MoonBit installer cannot be read; preserving it and stopping.",
+          "无法读取现有的 MoonBit 便携化安装脚本；已保留该文件并停止。",
         )
         return false
       }
     }
     if existing != portable_source {
       println(
-        "Existing transformed MoonBit installer differs from the reviewed result; preserving it and stopping: " +
+        "现有的 MoonBit 便携化安装脚本与审查结果不一致；已保留该文件并停止：" +
         portable_script_path,
       )
       return false
@@ -919,7 +921,7 @@ async fn install_moonbit(cwd : String) -> Bool {
     @fs.write_string_to_file(portable_script_path, portable_source) catch {
       _ => {
         println(
-          "Could not write the reviewed portable MoonBit installer; nothing was executed.",
+          "无法写入经过审查的 MoonBit 便携化安装脚本；没有执行任何内容。",
         )
         return false
       }
@@ -929,7 +931,7 @@ async fn install_moonbit(cwd : String) -> Bool {
   guard powershell_literal(moon_home) is Some(home) &&
     powershell_literal(moon_bin) is Some(bin) &&
     powershell_literal(portable_script_path) is Some(portable_destination) else {
-    println("Unsupported characters in MoonBit install path.")
+    println("MoonBit 安装路径中含有不支持的字符。")
     return false
   }
   let install = @host.run(
@@ -954,7 +956,7 @@ async fn install_moonbit(cwd : String) -> Bool {
   let moon_exe = join(moon_bin, "moon.exe")
   if install.code != 0 || install.timed_out || !@fs.path_exists(moon_exe) {
     println(
-      "WAITING_ENVIRONMENT: The reviewed MoonBit installer did not complete. The source is retained for inspection.\n" +
+      "WAITING_ENVIRONMENT: 经过审查的 MoonBit 安装脚本未能完成。源码已保留供检查。\n" +
       install.output,
     )
     return false
@@ -962,7 +964,7 @@ async fn install_moonbit(cwd : String) -> Bool {
   let checked = @host.run(moon_exe, ["--version"], cwd, 30000)
   if checked.code != 0 || checked.timed_out {
     println(
-      "MoonBit files were created, but the installed compiler probe failed. No success receipt was written.\n" +
+      "MoonBit 文件已经生成，但编译器检查失败，因此没有写入成功收据。\n" +
       checked.output,
     )
     return false
@@ -983,7 +985,7 @@ async fn install_local_npm(
 ) -> Bool {
   guard resolve_alias("npm") is Some(npm) else {
     println(
-      "WAITING_ENVIRONMENT: npm is required for an application-local \{program} install. Install/repair Node.js first.",
+      "WAITING_ENVIRONMENT: 在应用本地安装 \{program} 需要 npm。请先安装或修复 Node.js。",
     )
     return false
   }
@@ -991,7 +993,7 @@ async fn install_local_npm(
   let package_dir = join(@host.tool_root(), "node_modules/" + package_name)
   if @fs.path_exists(package_dir) {
     println(
-      "WAITING_ENVIRONMENT: an application-local \{package_name} directory already exists but no working executable was found. RepoWayfinder will not overwrite possibly modified or partial files: " +
+      "WAITING_ENVIRONMENT: 应用本地的 \{package_name} 目录已经存在，但没有找到可用的可执行文件。RepoWayfinder 不会覆盖可能已修改或不完整的文件：" +
       package_dir,
     )
     return false
@@ -1013,7 +1015,7 @@ async fn install_local_npm(
   )
   if result.code != 0 || result.timed_out {
     println(
-      "Application-local \{program} install failed. No ownership receipt was written.\n" +
+      "应用本地的 \{program} 安装失败，因此没有写入归属收据。\n" +
       result.output,
     )
     return false
@@ -1021,7 +1023,7 @@ async fn install_local_npm(
   let checked = probe(program, cwd)
   if checked.state != "ready" {
     println(
-      "\{program} was downloaded locally but its version probe failed. No success receipt was written.\n" +
+      "\{program} 已下载到应用本地目录，但版本检查失败，因此没有写入成功收据。\n" +
       checked.detail,
     )
     return false
@@ -1054,7 +1056,7 @@ async fn windows_x64(cwd : String) -> Bool {
 async fn install_portable_git(cwd : String) -> Bool {
   guard windows_x64(cwd) else {
     println(
-      "WAITING_ENVIRONMENT: the reviewed MinGit fallback supports Windows x64 only. Install Git for Windows for this architecture from its official publisher.",
+      "WAITING_ENVIRONMENT: 经过审查的 MinGit 备用方案仅支持 Windows x64。请从官方发布方安装适用于本机架构的 Git for Windows。",
     )
     return false
   }
@@ -1063,7 +1065,7 @@ async fn install_portable_git(cwd : String) -> Bool {
   let target = join(@host.tool_root(), "git")
   if @fs.path_exists(target) {
     println(
-      "WAITING_ENVIRONMENT: application-local Git target exists without a working executable. It is preserved as possibly partial or modified: " +
+      "WAITING_ENVIRONMENT: 应用本地 Git 目标目录已经存在，但没有可用的可执行文件。该目录可能不完整或已被修改，因此已保留：" +
       target,
     )
     return false
@@ -1073,7 +1075,7 @@ async fn install_portable_git(cwd : String) -> Bool {
   }
   guard file_sha256(archive, cwd) == Some(mingit_sha256) else {
     println(
-      "WAITING_ENVIRONMENT: MinGit SHA-256 does not match the official Git for Windows release asset. The archive was not extracted: " +
+      "WAITING_ENVIRONMENT: MinGit 的 SHA-256 与 Git for Windows 官方发布文件不一致，因此没有解压：" +
       archive,
     )
     return false
@@ -1084,7 +1086,7 @@ async fn install_portable_git(cwd : String) -> Bool {
   let checked = probe("git", cwd)
   if checked.state != "ready" {
     println(
-      "Application-local MinGit was extracted, but its version probe failed. No ownership receipt was written.\n" +
+      "应用本地 MinGit 已解压，但版本检查失败，因此没有写入归属收据。\n" +
       checked.detail,
     )
     return false
@@ -1107,7 +1109,7 @@ async fn install_portable_git(cwd : String) -> Bool {
 async fn install_portable_node(cwd : String) -> Bool {
   guard windows_x64(cwd) else {
     println(
-      "WAITING_ENVIRONMENT: the official Node portable fallback supports Windows x64 only. Install a supported Node.js build for this architecture.",
+      "WAITING_ENVIRONMENT: Node 官方便携备用方案仅支持 Windows x64。请安装适用于本机架构的 Node.js 版本。",
     )
     return false
   }
@@ -1115,7 +1117,7 @@ async fn install_portable_node(cwd : String) -> Bool {
   let target = join(@host.tool_root(), "node")
   if @fs.path_exists(target) {
     println(
-      "WAITING_ENVIRONMENT: application-local Node target exists without working node/npm executables. It is preserved as possibly partial or modified: " +
+      "WAITING_ENVIRONMENT: 应用本地 Node 目标目录已经存在，但 node/npm 均不可用。该目录可能不完整或已被修改，因此已保留：" +
       target,
     )
     return false
@@ -1126,13 +1128,13 @@ async fn install_portable_node(cwd : String) -> Bool {
   }
   let index_source = @fs.read_file_to_string(index_path) catch {
     _ => {
-      println("Downloaded official Node release index could not be read.")
+      println("无法读取已下载的 Node 官方版本索引。")
       return false
     }
   }
   guard node_lts_archive(index_source) is Some((version, filename, url)) else {
     println(
-      "WAITING_ENVIRONMENT: nodejs.org index has no structurally valid LTS Windows x64 portable archive; source drift was not guessed around.",
+      "WAITING_ENVIRONMENT: nodejs.org 版本索引中没有结构有效的 LTS Windows x64 便携压缩包；不会猜测已经变化的来源格式。",
     )
     return false
   }
@@ -1143,15 +1145,15 @@ async fn install_portable_node(cwd : String) -> Bool {
   }
   let sums = @fs.read_file_to_string(sums_path) catch {
     _ => {
-      println("Downloaded official Node checksum manifest could not be read.")
+      println("无法读取已下载的 Node 官方校验清单。")
       return false
     }
   }
   guard checksum_for_file(sums, filename) is Some(expected_sha256) else {
     println(
-      "WAITING_ENVIRONMENT: official Node checksum manifest has no exact entry for " +
+      "WAITING_ENVIRONMENT: Node 官方校验清单中没有与下列文件完全匹配的条目：" +
       filename +
-      "; archive was not downloaded.",
+      "；没有下载压缩包。",
     )
     return false
   }
@@ -1161,7 +1163,7 @@ async fn install_portable_node(cwd : String) -> Bool {
   }
   guard file_sha256(archive, cwd) == Some(expected_sha256) else {
     println(
-      "WAITING_ENVIRONMENT: Node archive SHA-256 does not match the exact official SHASUMS256.txt entry. It was not extracted: " +
+      "WAITING_ENVIRONMENT: Node 压缩包的 SHA-256 与官方 SHASUMS256.txt 中的精确条目不一致，因此没有解压：" +
       archive,
     )
     return false
@@ -1173,9 +1175,9 @@ async fn install_portable_node(cwd : String) -> Bool {
   let npm_checked = probe("npm", cwd)
   if node_checked.state != "ready" || npm_checked.state != "ready" {
     println(
-      "Application-local Node was extracted, but node and npm did not both pass version probes. No ownership receipt was written.\nnode: " +
+      "应用本地 Node 已解压，但 node 和 npm 未能同时通过版本检查，因此没有写入归属收据。\nnode：" +
       node_checked.detail +
-      "\nnpm: " +
+      "\nnpm：" +
       npm_checked.detail,
     )
     return false
@@ -1219,7 +1221,7 @@ async fn verified_python_installer(path : String, cwd : String) -> Bool {
 async fn install_local_python(cwd : String) -> Bool {
   guard windows_x64(cwd) else {
     println(
-      "WAITING_ENVIRONMENT: the reviewed python.org fallback is the Windows x64 installer only. Select an official installer for this architecture yourself.",
+      "WAITING_ENVIRONMENT: 经过审查的 python.org 备用方案仅支持 Windows x64 安装器。请自行选择适用于本机架构的官方安装器。",
     )
     return false
   }
@@ -1229,14 +1231,14 @@ async fn install_local_python(cwd : String) -> Bool {
   let installer = join(@host.tool_root(), python_direct_filename)
   if @fs.path_exists(target) {
     println(
-      "WAITING_ENVIRONMENT: application-local Python target exists without a working executable. It is preserved as possibly partial or modified: " +
+      "WAITING_ENVIRONMENT: 应用本地 Python 目标目录已经存在，但没有可用的可执行文件。该目录可能不完整或已被修改，因此已保留：" +
       target,
     )
     return false
   }
   if @fs.path_exists(installer) {
     println(
-      "WAITING_ENVIRONMENT: an unowned file already occupies the exact Python installer path. It will not be reused or overwritten: " +
+      "WAITING_ENVIRONMENT: Python 安装器的预定路径已经被无归属记录的文件占用；不会复用或覆盖该文件：" +
       installer,
     )
     return false
@@ -1248,19 +1250,19 @@ async fn install_local_python(cwd : String) -> Bool {
   }
   guard verified_python_installer(installer, cwd) else {
     println(
-      "WAITING_ENVIRONMENT: the downloaded Python installer does not have a valid Python Software Foundation Authenticode signature. It was not executed: " +
+      "WAITING_ENVIRONMENT: 已下载的 Python 安装器没有有效的 Python Software Foundation Authenticode 签名，因此没有执行：" +
       installer,
     )
     return false
   }
   guard file_sha256(installer, cwd) is Some(installer_sha256) else {
     println(
-      "WAITING_ENVIRONMENT: the signed Python installer SHA-256 could not be recorded, so it was not executed.",
+      "WAITING_ENVIRONMENT: 无法记录已签名 Python 安装器的 SHA-256，因此没有执行它。",
     )
     return false
   }
   println(
-    "The exact signed python.org installer will run visibly in passive, current-user mode. It will not change PATH, install the launcher, request a restart, or auto-answer UAC. Any Windows/license prompt remains yours.",
+    "即将以当前用户、可见的被动模式运行已签名的 python.org 精确版本安装器。它不会修改 PATH、安装启动器、请求重启或自动回应 UAC；任何 Windows 或许可提示都由你决定。",
   )
   let result = @host.run(
     installer,
@@ -1281,7 +1283,7 @@ async fn install_local_python(cwd : String) -> Bool {
   )
   if result.code != 0 || result.timed_out || !@fs.path_exists(executable) {
     println(
-      "WAITING_ENVIRONMENT: the official Python installer did not create the exact requested local runtime. No ownership receipt was written; installer and partial state are preserved for diagnosis.\n" +
+      "WAITING_ENVIRONMENT: Python 官方安装器没有创建所请求的精确本地运行时。未写入归属收据；安装器和不完整状态已保留供诊断。\n" +
       result.output,
     )
     return false
@@ -1290,7 +1292,7 @@ async fn install_local_python(cwd : String) -> Bool {
   if checked.state != "ready" ||
     checked.detail.trim() != "Python " + python_direct_version {
     println(
-      "Local Python exists, but its exact installed version did not pass verification. No ownership receipt was written.\n" +
+      "应用本地 Python 已存在，但安装版本未通过精确校验，因此没有写入归属收据。\n" +
       checked.detail,
     )
     return false
@@ -1316,9 +1318,9 @@ async fn install_official_fallback(program : String, cwd : String) -> Bool {
     "python" => install_local_python(cwd)
     _ => {
       println(
-        "WAITING_ENVIRONMENT: no reviewed official no-winget fallback is implemented for " +
+        "WAITING_ENVIRONMENT: 尚未为以下工具实现经过审查的无 winget 官方备用方案：" +
         program +
-        ".",
+        "。",
       )
       false
     }
@@ -1333,7 +1335,7 @@ async fn install_system(
 ) -> Bool {
   guard @host.windows() else {
     println(
-      "Automatic system prerequisite installation is unsupported on this platform. Install \{program} with your supported package manager, then retry.",
+      "当前平台不支持自动安装系统前置工具。请使用该平台支持的包管理器安装 \{program}，然后重试。",
     )
     return false
   }
@@ -1342,12 +1344,12 @@ async fn install_system(
       normalize(program) == "node" ||
       normalize(program) == "python" {
       println(
-        "winget is absent. Using the reviewed official application-local fallback; no system PATH, package-manager, service, auto-start, or machine setting will be changed.",
+        "未找到 winget，将改用经过审查的官方应用本地备用方案；不会修改系统 PATH、包管理器、服务、自启动项或机器设置。",
       )
       return install_official_fallback(program, cwd)
     }
     println(
-      "WAITING_ENVIRONMENT: winget is unavailable and no safe official local fallback is implemented for \{package_id}. Install it from its official publisher and retry.",
+      "WAITING_ENVIRONMENT: winget 不可用，且 \{package_id} 尚无安全的官方本地备用方案。请从官方发布方安装后重试。",
     )
     return false
   }
@@ -1359,19 +1361,19 @@ async fn install_system(
   )
   if before.code == 0 && before.output.contains(package_id[:]) {
     println(
-      "WAITING_ENVIRONMENT: winget reports \{package_id} is already installed, but \{program} was not usable. It is pre-existing or broken, so RepoWayfinder will not upgrade it or claim ownership. Repair it from Windows Installed Apps or its official publisher.",
+      "WAITING_ENVIRONMENT: winget 显示 \{package_id} 已安装，但 \{program} 无法使用。它属于预先存在或已损坏的安装，RepoWayfinder 不会升级它或声称归属。请通过 Windows“已安装的应用”或官方发布方进行修复。",
     )
     return false
   }
   if !winget_confirmed_absent(before.code, before.output) {
     println(
-      "WAITING_ENVIRONMENT: winget could not prove that \{package_id} is absent. RepoWayfinder will not risk upgrading an existing package or claiming ownership.\n" +
+      "WAITING_ENVIRONMENT: winget 无法证明 \{package_id} 确实未安装。为避免误升级现有软件或错误认领归属，RepoWayfinder 已停止。\n" +
       before.output,
     )
     return false
   }
   println(
-    "winget will use exact package ID \{package_id}. RepoWayfinder does not pass license/source auto-accept flags and will not request a restart or upgrade an existing tool.",
+    "winget 将使用精确包 ID \{package_id}。RepoWayfinder 不会传入自动接受许可/来源的参数，也不会请求重启或升级现有工具。",
   )
   let result = @host.run(
     winget,
@@ -1381,7 +1383,7 @@ async fn install_system(
   )
   if result.code != 0 || result.timed_out {
     println(
-      "WAITING_ENVIRONMENT: winget did not complete. Review any package license/UAC request yourself; no success receipt was written.\n" +
+      "WAITING_ENVIRONMENT: winget 未能完成。请自行查看并决定任何软件包许可或 UAC 请求；未写入成功收据。\n" +
       result.output,
     )
     return false
@@ -1395,7 +1397,7 @@ async fn install_system(
   guard after.code == 0 &&
     package_line(after.output, package_id) is Some(installed_line) else {
     println(
-      "winget returned success, but a new exact package record could not be verified. No ownership receipt was written.\n" +
+      "winget 返回成功，但无法验证新的精确软件包记录，因此没有写入归属收据。\n" +
       after.output,
     )
     return false
@@ -1406,13 +1408,13 @@ async fn install_system(
   )
   if normalize(program) == "docker" {
     println(
-      "WAITING_ENVIRONMENT: package installation completed, but Windows/Docker readiness must be completed and verified separately. RepoWayfinder will not accept a license, enable firmware virtualization, elevate itself, or reboot Windows.",
+      "WAITING_ENVIRONMENT: 软件包安装已完成，但仍需单独完成并验证 Windows/Docker 就绪状态。RepoWayfinder 不会代你接受许可、启用固件虚拟化、自行提权或重启 Windows。",
     )
     return false
   }
   if checked.state != "ready" {
     println(
-      "WAITING_ENVIRONMENT: installation completed, but \{program} is not ready in this process. Restart the terminal if the installer changed PATH, then retry.\n" +
+      "WAITING_ENVIRONMENT: 安装已完成，但当前进程中的 \{program} 尚未就绪。如果安装器修改了 PATH，请重开终端后重试。\n" +
       checked.detail,
     )
     return false
@@ -1446,29 +1448,29 @@ fn wsl_waiting_marker_path() -> String {
 async fn repair_docker(cwd : String, allow_install : Bool) -> Bool {
   guard @host.windows() else {
     println(
-      "WAITING_ENVIRONMENT: Docker daemon is unavailable. Automatic Docker Desktop start is implemented only on Windows; start the supported daemon for this platform yourself.",
+      "WAITING_ENVIRONMENT: Docker 守护进程不可用。自动启动 Docker Desktop 目前仅支持 Windows；请自行启动当前平台支持的守护进程。",
     )
     return false
   }
   guard @host.resolve("docker") is Some(docker) else { return false }
   if !allow_install {
     println(
-      "WAITING_ENVIRONMENT: Docker CLI is installed but the daemon is stopped or unavailable. Starting Docker Desktop is disabled for this run; the existing installation will not be reinstalled.",
+      "WAITING_ENVIRONMENT: Docker CLI 已安装，但守护进程已停止或不可用。本次运行不允许启动 Docker Desktop，也不会重新安装现有版本。",
     )
     return false
   }
   guard @host.prompt(
-    "Docker is installed but its daemon is not ready. Allow the official `docker desktop start` command? You must review/accept any Docker license or first-run UI yourself; RepoWayfinder will not reinstall Docker.",
+    "Docker 已安装，但守护进程尚未就绪。是否允许执行官方命令 `docker desktop start`？任何 Docker 许可或首次运行界面都需要你亲自查看并决定；RepoWayfinder 不会重新安装 Docker。",
   ) else {
     println(
-      "WAITING_ENVIRONMENT: Docker Desktop start was declined (default is No).",
+      "WAITING_ENVIRONMENT: 已取消启动 Docker Desktop（默认选择为“否”）。",
     )
     return false
   }
   let started = @host.run(docker, ["desktop", "start"], cwd, 120000)
   if started.code != 0 || started.timed_out {
     println(
-      "WAITING_ENVIRONMENT: Docker Desktop did not start through its official CLI. Complete WSL/virtualization/license setup or start it yourself; no reinstall was attempted.\n" +
+      "WAITING_ENVIRONMENT: 未能通过官方 CLI 启动 Docker Desktop。请完成 WSL、虚拟化和许可设置，或自行启动；没有尝试重新安装。\n" +
       started.output,
     )
     return false
@@ -1478,7 +1480,7 @@ async fn repair_docker(cwd : String, allow_install : Bool) -> Bool {
     true
   } else {
     println(
-      "WAITING_ENVIRONMENT: Docker Desktop start returned successfully, but the daemon is not ready. Complete its visible first-run/license/WSL setup and retry; no reinstall was attempted.\n" +
+      "WAITING_ENVIRONMENT: Docker Desktop 启动命令已成功返回，但守护进程尚未就绪。请完成可见的首次运行、许可和 WSL 设置后重试；没有尝试重新安装。\n" +
       after.detail,
     )
     false
@@ -1488,12 +1490,12 @@ async fn repair_docker(cwd : String, allow_install : Bool) -> Bool {
 ///|
 async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   guard @host.windows() else {
-    println("WSL repair is available only on Windows.")
+    println("WSL 修复功能仅支持 Windows。")
     return false
   }
   guard @host.resolve("wsl") is Some(wsl) else {
     println(
-      "WAITING_ENVIRONMENT: the Windows WSL command is absent. RepoWayfinder cannot safely enable Windows features through a hidden/elevated helper. Open an Administrator terminal, review `wsl --install --no-distribution`, then restart only if Windows asks.",
+      "WAITING_ENVIRONMENT: 未找到 Windows WSL 命令。RepoWayfinder 无法通过隐藏或提权助手安全启用 Windows 功能。请打开管理员终端，确认后运行 `wsl --install --no-distribution`；仅在 Windows 要求时重启。",
     )
     return false
   }
@@ -1510,7 +1512,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   if @fs.path_exists(wsl_waiting_marker_path()) ||
     read_receipt("wsl") is Some(_) {
     println(
-      "WAITING_ENVIRONMENT: a prior official WSL install/update command completed, but WSL status is still not ready. RepoWayfinder will not repeat it; complete Windows setup or restart if requested, then retry.\n" +
+      "WAITING_ENVIRONMENT: 之前的 WSL 官方安装/更新命令已经完成，但 WSL 状态仍未就绪。RepoWayfinder 不会重复执行；请完成 Windows 设置，或在系统要求时重启，然后重试。\n" +
       status.output,
     )
     return false
@@ -1518,7 +1520,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   let action = wsl_repair_action(status.code, status.output, status.timed_out)
   if action == "manual" {
     println(
-      "WAITING_ENVIRONMENT: WSL status is not ready, but it does not specifically request install or kernel update. RepoWayfinder will not guess. Complete virtualization, Virtual Machine Platform, firmware, or restart requirements yourself.\n" +
+      "WAITING_ENVIRONMENT: WSL 尚未就绪，但状态并未明确要求安装或更新内核。RepoWayfinder 不会猜测操作；请自行完成虚拟化、虚拟机平台、固件或重启要求。\n" +
       status.output,
     )
     return false
@@ -1526,7 +1528,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   let suffix = if action == "install" { " --no-distribution" } else { "" }
   if !allow_install {
     println(
-      "WAITING_ENVIRONMENT: WSL status failed and repair is disabled for this run. The evidence-selected official action is `wsl --\{action}\{suffix}`.",
+      "WAITING_ENVIRONMENT: WSL 状态检查失败，并且本次运行不允许修复。根据现有证据，应执行的官方操作是 `wsl --\{action}\{suffix}`。",
     )
     return false
   }
@@ -1538,7 +1540,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   if action == "install" {
     guard @host.resolve("powershell") is Some(powershell) else {
       println(
-        "WAITING_ENVIRONMENT: PowerShell is unavailable, so elevation state cannot be checked. Run `wsl --install --no-distribution` yourself from an Administrator terminal.",
+        "WAITING_ENVIRONMENT: PowerShell 不可用，无法检查当前是否已提权。请在管理员终端中自行运行 `wsl --install --no-distribution`。",
       )
       return false
     }
@@ -1552,16 +1554,18 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
     )
     if elevated.code != 0 || !elevated.output.trim().to_lower().contains("true") {
       println(
-        "WAITING_ENVIRONMENT: WSL installation needs an Administrator terminal and may require a restart. RepoWayfinder will not trigger UAC automatically. Run `wsl --install --no-distribution` yourself, review Windows prompts, then rerun the saved deployment.",
+        "WAITING_ENVIRONMENT: 安装 WSL 需要管理员终端，并且可能需要重启。RepoWayfinder 不会自动触发 UAC。请自行运行 `wsl --install --no-distribution`，查看并决定 Windows 提示，然后重新运行已保存的部署。",
       )
       return false
     }
   }
   let command_text = "wsl " + args.join(" ")
   guard @host.prompt(
-    "WSL status proves the runtime is not ready. Allow the official `\{command_text}` command now? RepoWayfinder will not accept licenses, answer UAC, or restart Windows.",
+    "WSL 状态已证明运行环境尚未就绪。是否允许现在执行官方命令 `\{command_text}`？RepoWayfinder 不会代你接受许可、回应 UAC 或重启 Windows。",
   ) else {
-    println("WAITING_ENVIRONMENT: WSL repair was declined (default is No).")
+    println(
+      "WAITING_ENVIRONMENT: 已取消 WSL 修复（默认选择为“否”）。",
+    )
     return false
   }
   guard ensure_tool_root() else { return false }
@@ -1576,7 +1580,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   ) catch {
     _ => {
       println(
-        "WAITING_ENVIRONMENT: the WSL no-repeat checkpoint could not be written, so no system command was executed.",
+        "WAITING_ENVIRONMENT: 无法写入 WSL 防重复执行检查点，因此没有执行系统命令。",
       )
       return false
     }
@@ -1584,7 +1588,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
   let result = @host.run(wsl, args, cwd, 600000)
   if result.code != 0 || result.timed_out {
     println(
-      "WAITING_ENVIRONMENT: `\{command_text}` did not complete. Its checkpoint is retained to prevent uncertain replay; no alternate installer, UAC automation, or reboot was attempted. Inspect/remove only after reconciling WSL state: \{waiting_marker}\n" +
+      "WAITING_ENVIRONMENT: `\{command_text}` 未能完成。为避免在结果不确定时重复执行，检查点已保留；没有尝试其他安装器、自动回应 UAC 或重启。请先核对 WSL 状态，再检查或移除该文件：\{waiting_marker}\n" +
       result.output,
     )
     return false
@@ -1609,7 +1613,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
     true
   } else {
     println(
-      "WAITING_ENVIRONMENT: the official WSL command completed, but WSL is not ready yet. Complete any displayed Windows setup or restart, then rerun; RepoWayfinder will not repeat the command while this state is unresolved.",
+      "WAITING_ENVIRONMENT: WSL 官方命令已经完成，但 WSL 尚未就绪。请完成屏幕上显示的 Windows 设置或重启要求后再次运行；在此状态未解决前，RepoWayfinder 不会重复该命令。",
     )
     false
   }
@@ -1638,7 +1642,7 @@ pub async fn ensure(
   }
   if status.state == "broken" {
     println(
-      "WAITING_ENVIRONMENT: \{name} is installed but its probe failed. RepoWayfinder will not upgrade or overwrite a pre-existing broken installation. Repair it with its official installer, then retry.\n" +
+      "WAITING_ENVIRONMENT: \{name} 已安装，但检查失败。RepoWayfinder 不会升级或覆盖预先存在的损坏安装；请使用官方安装器修复后重试。\n" +
       status.detail,
     )
     return false
@@ -1647,7 +1651,7 @@ pub async fn ensure(
     let node = probe("node", cwd)
     if node.state == "ready" {
       println(
-        "WAITING_ENVIRONMENT: Node.js is installed but npm is missing. RepoWayfinder will not install a second Node.js or upgrade the existing distribution. Repair/reinstall that Node.js distribution from its official owner, then retry.",
+        "WAITING_ENVIRONMENT: Node.js 已安装，但缺少 npm。RepoWayfinder 不会再安装一份 Node.js 或升级现有发行版；请通过官方来源修复或重新安装当前 Node.js，然后重试。",
       )
       return false
     }
@@ -1658,46 +1662,46 @@ pub async fn ensure(
       return probe("npm", cwd).state == "ready"
     }
     println(
-      "WAITING_ENVIRONMENT: npm cannot be prepared because the existing Node.js probe is not ready. Repair Node.js first.",
+      "WAITING_ENVIRONMENT: 现有 Node.js 未通过检查，因此无法准备 npm。请先修复 Node.js。",
     )
     return false
   }
   if !allow_install {
     println(
-      "WAITING_ENVIRONMENT: \{name} is missing and installation is disabled for this run.",
+      "WAITING_ENVIRONMENT: 缺少 \{name}，并且本次运行不允许安装。",
     )
     return false
   }
   let install_action = match
     (local_npm_package(name), system_package_id(name)) {
     (Some(package_name), _) =>
-      "install npm package \{package_name} only under \{@host.tool_root()}"
+      "仅在 \{@host.tool_root()} 中安装 npm 包 \{package_name}"
     (_, Some(package_id)) =>
       if @host.resolve("winget") is Some(_) {
-        "ask winget for exact package \{package_id}; package licenses, UAC and restart decisions remain yours"
+        "请求 winget 安装精确软件包 \{package_id}；软件包许可、UAC 和重启仍由你决定"
       } else if name == "git" {
-        "download the pinned official Git for Windows MinGit archive, verify its published SHA-256, and extract it only under \{@host.tool_root()}"
+        "下载固定版本的 Git for Windows 官方 MinGit 压缩包，核对其公开的 SHA-256，并且只解压到 \{@host.tool_root()}"
       } else if name == "node" {
-        "select the newest official Node LTS Windows x64 portable archive, verify it against that release's SHASUMS256.txt, and extract it only under \{@host.tool_root()}"
+        "选择最新的 Node 官方 LTS Windows x64 便携压缩包，使用该版本的 SHASUMS256.txt 校验，并且只解压到 \{@host.tool_root()}"
       } else if name == "python" {
-        "download the exact python.org 3.11.9 x64 installer, verify its Python Software Foundation signature, and visibly run a no-PATH current-user local install; license/UAC decisions remain yours"
+        "下载 python.org 3.11.9 x64 精确版本安装器，验证 Python Software Foundation 签名，并以可见方式执行不修改 PATH 的当前用户本地安装；许可和 UAC 仍由你决定"
       } else {
-        "stop because winget is absent and no reviewed local fallback exists for \{package_id}"
+        "停止操作，因为缺少 winget，且 \{package_id} 没有经过审查的本地备用方案"
       }
     _ if name == "moon" =>
-      "download, read and structurally verify the official MoonBit PowerShell installer, then install under \{@host.tool_root()}"
+      "下载并读取 MoonBit 官方 PowerShell 安装脚本，通过结构校验后安装到 \{@host.tool_root()}"
     _ => {
       println(
-        "Unsupported prerequisite: \{name}. Supported: git, node, npm, python, docker, wsl, moon, pnpm, yarn and bun.",
+        "不支持的前置工具：\{name}。目前支持 git、node、npm、python、docker、wsl、moon、pnpm、yarn 和 bun。",
       )
       return false
     }
   }
   guard @host.prompt(
-    "\{name} is missing. Allow RepoWayfinder to \{install_action}?",
+    "缺少 \{name}。是否允许 RepoWayfinder \{install_action}？",
   ) else {
     println(
-      "WAITING_ENVIRONMENT: \{name} installation was declined (default is No).",
+      "WAITING_ENVIRONMENT: 已取消安装 \{name}（默认选择为“否”）。",
     )
     return false
   }
@@ -1710,7 +1714,7 @@ pub async fn ensure(
         match system_package_id(name) {
           Some(package_id) => install_system(name, package_id, cwd)
           None => {
-            println("No supported installer for \{name}.")
+            println("没有适用于 \{name} 的受支持安装器。")
             false
           }
         }
@@ -1740,8 +1744,8 @@ pub async fn doctor() -> Json {
     "tool_root": Json(@host.tool_root()),
     "tools": Json(tools),
     "notes": Json([
-      "missing and installed-but-broken are distinct states", "Docker CLI availability does not prove Docker Desktop/daemon readiness",
-      "WSL, virtualization, license acceptance, UAC and reboot remain user-owned boundaries",
+      "缺失与已安装但损坏是两种不同状态", "能使用 Docker CLI 并不代表 Docker Desktop/守护进程已经就绪",
+      "WSL、虚拟化、许可接受、UAC 和重启仍是需要用户亲自决定的边界",
     ]),
   })
 }
@@ -1763,7 +1767,7 @@ async fn uninstall_npm_local(
     return Json({
       "program": program,
       "state": "preserved",
-      "detail": "No matching RepoWayfinder ownership receipt.",
+      "detail": "没有找到匹配的 RepoWayfinder 归属收据，未执行删除。",
     })
   }
   guard current_version(program, cwd) is Some(version) &&
@@ -1771,14 +1775,14 @@ async fn uninstall_npm_local(
     return Json({
       "program": program,
       "state": "preserved",
-      "detail": "Installed version no longer matches the ownership receipt, or cannot be verified; preserving possibly modified/shared files.",
+      "detail": "已安装版本与归属收据不再一致，或当前无法验证；已保留可能被修改或共享的文件。",
     })
   }
   guard resolve_alias("npm") is Some(npm) else {
     return Json({
       "program": program,
       "state": "preserved",
-      "detail": "npm is unavailable; receipt retained for a later retry.",
+      "detail": "npm 不可用；归属收据已保留，稍后可以重试。",
     })
   }
   let result = @host.run(
@@ -1802,7 +1806,7 @@ async fn uninstall_npm_local(
     Json({
       "program": program,
       "state": "preserved",
-      "detail": "Official npm uninstall failed; files and receipt were retained.\n" +
+      "detail": "npm 官方卸载失败；文件和归属收据均已保留。\n" +
       result.output,
     })
   }
@@ -1825,14 +1829,14 @@ async fn uninstall_system(
     return Json({
       "program": program,
       "state": "preserved",
-      "detail": "No matching RepoWayfinder ownership receipt; shared or pre-existing install preserved.",
+      "detail": "没有找到匹配的 RepoWayfinder 归属收据；已保留共享或预先存在的安装。",
     })
   }
   guard @host.resolve("winget") is Some(winget) else {
     return Json({
       "program": program,
       "state": "preserved",
-      "detail": "winget is unavailable; use Windows Installed Apps. Receipt retained.",
+      "detail": "winget 不可用；请使用 Windows“已安装的应用”。归属收据已保留。",
     })
   }
   let installed = @host.run(
@@ -1847,7 +1851,7 @@ async fn uninstall_system(
     return Json({
       "program": program,
       "state": "preserved",
-      "detail": "Installed package record no longer matches the ownership receipt, or cannot be verified; preserving possibly updated/shared installation.",
+      "detail": "已安装软件包记录与归属收据不再一致，或当前无法验证；已保留可能更新过或共享的安装。",
     })
   }
   let result = @host.run(
@@ -1863,7 +1867,7 @@ async fn uninstall_system(
     Json({
       "program": program,
       "state": "preserved",
-      "detail": "winget uninstall failed or needs user interaction; receipt retained.\n" +
+      "detail": "winget 卸载失败或需要用户操作；归属收据已保留。\n" +
       result.output,
     })
   }
@@ -1876,7 +1880,7 @@ async fn uninstall_local_python(cwd : String) -> Json {
     return Json({
       "program": "python",
       "state": "preserved",
-      "detail": "No exact RepoWayfinder python.org-local ownership receipt; pre-existing/shared Python was preserved.",
+      "detail": "没有找到精确匹配的 RepoWayfinder python.org 本地安装归属收据；已保留预先存在或共享的 Python。",
     })
   }
   let target = join(@host.tool_root(), "python")
@@ -1887,7 +1891,7 @@ async fn uninstall_local_python(cwd : String) -> Json {
     return Json({
       "program": "python",
       "state": "preserved",
-      "detail": "Local Python version no longer matches the ownership receipt, or cannot be verified; possibly modified files were preserved.",
+      "detail": "本地 Python 版本与归属收据不再一致，或当前无法验证；已保留可能被修改的文件。",
     })
   }
   guard @fs.path_exists(installer) &&
@@ -1896,7 +1900,7 @@ async fn uninstall_local_python(cwd : String) -> Json {
     return Json({
       "program": "python",
       "state": "preserved",
-      "detail": "The retained exact-version python.org installer is absent or its Python Software Foundation signature is no longer valid. Runtime and receipt were preserved; no substitute uninstaller was guessed.",
+      "detail": "保留的 python.org 精确版本安装器缺失，或其 Python Software Foundation 签名已无效。运行时和归属收据均已保留；没有猜测使用其他卸载器。",
     })
   }
   let result = @host.run(
@@ -1916,13 +1920,13 @@ async fn uninstall_local_python(cwd : String) -> Json {
     Json({
       "program": "python",
       "state": "removed",
-      "detail": "The exact signed python.org installer removed the owned runtime. Any non-runtime residual directory and the retained installer were preserved rather than recursively deleted.",
+      "detail": "已使用精确匹配且签名有效的 python.org 安装器移除归属明确的运行时。没有递归删除目录；非运行时残留和保留的安装器仍在原处。",
     })
   } else {
     Json({
       "program": "python",
       "state": "preserved",
-      "detail": "The official Python uninstall failed, timed out, requested a restart, or left python.exe present. Runtime/installer/receipt were preserved for reconciliation; RepoWayfinder did not retry or delete the directory.\n" +
+      "detail": "Python 官方卸载失败、超时、要求重启，或仍留下 python.exe。运行时、安装器和归属收据均已保留供核对；RepoWayfinder 没有重试或删除目录。\n" +
       result.output,
     })
   }
@@ -1935,7 +1939,7 @@ pub async fn uninstall(confirmed : Bool) -> Json {
       "status": Json("confirmation_required"),
       "changed": Json(false),
       "detail": Json(
-        "Nothing was removed. Call again only after explicit user confirmation.",
+        "没有移除任何内容。只有在用户明确确认后才能再次执行。",
       ),
     })
   }
@@ -1957,7 +1961,7 @@ pub async fn uninstall(confirmed : Bool) -> Json {
         Json({
           "program": name,
           "state": "preserved",
-          "detail": "RepoWayfinder owns this application-local portable runtime, but no per-file integrity manifest exists to prove that its directory is still unmodified. It and its receipt were conservatively preserved; no broad recursive deletion was attempted.",
+          "detail": "该应用本地便携运行时由 RepoWayfinder 安装，但目前没有逐文件完整性清单可以证明目录未被修改。为稳妥起见，运行时和归属收据均已保留；没有进行大范围递归删除。",
         }),
       )
     } else {
@@ -1976,7 +1980,7 @@ pub async fn uninstall(confirmed : Bool) -> Json {
       Json({
         "program": "moon",
         "state": "preserved",
-        "detail": "MoonBit publishes no supported Windows uninstall command. The application-local toolchain and receipt were preserved rather than recursively deleting a directory.",
+        "detail": "MoonBit 没有提供受支持的 Windows 卸载命令。应用本地工具链和归属收据均已保留，没有递归删除目录。",
       }),
     )
   }
@@ -1992,7 +1996,7 @@ pub async fn uninstall(confirmed : Bool) -> Json {
       Json({
         "program": "wsl",
         "state": "preserved",
-        "detail": "WSL Windows features have no safe application-local uninstall. They and the ownership receipt were preserved; use Windows Installed Apps/Optional Features after reviewing shared dependencies.",
+        "detail": "WSL Windows 功能没有安全的应用本地卸载方式。相关功能和归属收据均已保留；请先确认共享依赖，再使用 Windows“已安装的应用”或“可选功能”处理。",
       }),
     )
   }

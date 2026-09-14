@@ -71,6 +71,79 @@ fn parse_github_target(target : String) -> (String, String)? {
 }
 
 ///|
+/// Whether text is one of the supported public GitHub repository spellings.
+pub fn is_github_target(target : String) -> Bool {
+  parse_github_target(target) is Some(_)
+}
+
+///|
+/// Whether text is syntactically an explicit local path, even if it is missing.
+pub fn is_local_path_hint(target : String) -> Bool {
+  let value = target.trim(chars=" \t\r\n").to_owned()
+  value.has_prefix("./") ||
+  value.has_prefix("../") ||
+  value.has_prefix(".\\") ||
+  value.has_prefix("..\\") ||
+  value.has_prefix("/") ||
+  value.has_prefix("\\") ||
+  value.contains("\\") ||
+  (value.length() >= 2 && value[1] == ':')
+}
+
+///|
+/// Compact metadata used by the interactive repository chooser.
+pub(all) struct SearchCandidate {
+  full_name : String
+  description : String
+  language : String
+  stars : Int
+  archived : Bool
+} derive(Eq, Debug)
+
+///|
+/// Convert bounded GitHub search JSON into safe selectable repository targets.
+pub fn search_candidates(result : Json) -> Array[SearchCandidate] {
+  guard result is Object(fields) && fields.get("items") is Some(Array(items)) else {
+    return []
+  }
+  let candidates : Array[SearchCandidate] = []
+  for item in items {
+    if candidates.length() >= 3 {
+      break
+    }
+    guard item is Object(repository) &&
+      repository.get("full_name") is Some(String(full_name)) &&
+      parse_github_target(full_name) is Some(_) else {
+      continue
+    }
+    let description = match repository.get("description") {
+      Some(String(value)) => value
+      _ => ""
+    }
+    let language = match repository.get("language") {
+      Some(String(value)) => value
+      _ => "未知"
+    }
+    let stars = match repository.get("stargazers_count") {
+      Some(Number(value, ..)) => value.to_int()
+      _ => 0
+    }
+    candidates.push({
+      full_name,
+      description,
+      language,
+      stars: if stars < 0 {
+        0
+      } else {
+        stars
+      },
+      archived: repository.get("archived") == Some(Json::boolean(true)),
+    })
+  }
+  candidates
+}
+
+///|
 fn valid_sha(value : String) -> Bool {
   value.length() == 40 &&
   value
@@ -145,24 +218,24 @@ fn valid_zip_entry_name(name : String, expected_root : String) -> Bool {
 ///|
 async fn prepare_workspace(workspace : String) -> String {
   let raw = workspace.trim(chars=" \t\r\n").to_owned()
-  guard !raw.is_empty() else { fail("Workspace is empty.") }
+  guard !raw.is_empty() else { fail("仓库工作目录不能为空。") }
   if !@fs.exists(raw[:]) {
     @fs.mkdir(raw[:], recursive=true) catch {
-      _ => fail("Could not create the repository workspace.")
+      _ => fail("无法创建仓库工作目录。")
     }
   }
   guard (@fs.kind(raw[:]) catch { _ => Unknown }) == Directory else {
-    fail("Repository workspace is not a directory.")
+    fail("仓库工作目录不是文件夹。")
   }
   @fs.realpath(raw[:]) catch {
-    _ => fail("Could not canonicalize the repository workspace.")
+    _ => fail("无法解析仓库工作目录的真实路径。")
   }
 }
 
 ///|
 async fn github_json(url : String, label : String) -> Json {
   guard @host.resolve("curl") is Some(curl) else {
-    fail("curl is required for " + label + " and is not available.")
+    fail("执行" + label + "需要 curl，但当前环境中未找到。")
   }
   let result = @host.run(
     curl,
@@ -175,10 +248,10 @@ async fn github_json(url : String, label : String) -> Json {
     25000,
   )
   guard result.code == 0 && !result.timed_out else {
-    fail(label + " failed. " + safe_detail(result.output))
+    fail(label + "失败。" + safe_detail(result.output))
   }
   @json.parse(result.output) catch {
-    _ => fail(label + " returned invalid or oversized JSON.")
+    _ => fail(label + "返回了无效或过大的 JSON。")
   }
 }
 
@@ -189,20 +262,18 @@ async fn github_default_revision(
 ) -> (String, String) {
   let repo = github_json(
     "https://api.github.com/repos/" + owner + "/" + name,
-    "GitHub repository lookup",
+    "GitHub 仓库查询",
   )
   guard repo is Object(fields) else {
-    fail("GitHub repository lookup returned an unexpected response.")
+    fail("GitHub 仓库查询返回了无法识别的响应。")
   }
   if fields.get("private") is Some(True) {
-    fail(
-      "Private repositories are not supported by the public archive fallback.",
-    )
+    fail("公开 ZIP 备用下载不支持私有仓库。")
   }
   guard fields.get("default_branch") is Some(String(branch)) &&
     !branch.is_empty() &&
     branch.length() <= 255 else {
-    fail("GitHub repository has no usable default branch.")
+    fail("GitHub 仓库没有可用的默认分支。")
   }
   let reference = github_json(
     "https://api.github.com/repos/" +
@@ -211,16 +282,16 @@ async fn github_default_revision(
     name +
     "/git/ref/heads/" +
     @percent.encode(branch),
-    "GitHub default revision lookup",
+    "GitHub 默认版本查询",
   )
   guard reference is Object(ref_fields) else {
-    fail("GitHub default revision lookup returned an invalid response.")
+    fail("GitHub 默认版本查询返回了无效响应。")
   }
   guard ref_fields.get("object") is Some(Object(object)) else {
-    fail("GitHub default revision lookup returned no Git object.")
+    fail("GitHub 默认版本查询没有返回 Git 对象。")
   }
   guard object.get("sha") is Some(String(revision)) && valid_sha(revision) else {
-    fail("GitHub default revision lookup returned an invalid SHA.")
+    fail("GitHub 默认版本查询返回了无效的提交 SHA。")
   }
   (branch, revision.to_lower())
 }
@@ -232,13 +303,13 @@ async fn extract_zip_safely(
   expected_root : String,
 ) -> String {
   guard @host.windows() else {
-    fail("Secure GitHub ZIP fallback is currently available on Windows only.")
+    fail("安全的 GitHub ZIP 备用下载目前仅支持 Windows。")
   }
   guard valid_zip_entry_name(expected_root + "/file", expected_root) else {
-    fail("Archive root name is invalid.")
+    fail("ZIP 根目录名称无效。")
   }
   guard @host.resolve("powershell") is Some(powershell) else {
-    fail("Windows PowerShell is required for secure archive extraction.")
+    fail("安全解压 ZIP 需要 Windows PowerShell。")
   }
   let script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new(); " +
     "Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip=" +
@@ -270,14 +341,14 @@ async fn extract_zip_safely(
   )
   guard result.code == 0 && !result.timed_out else {
     fail(
-      "Secure archive extraction failed; no existing path was replaced. " +
+      "安全解压失败；没有替换任何已有路径。" +
       safe_detail(result.output),
     )
   }
   let root = result.output.trim(chars=" \t\r\n").to_owned()
   guard @fs.exists(root[:]) &&
     (@fs.kind(root[:]) catch { _ => Unknown }) == Directory else {
-    fail("Secure archive extraction did not produce the expected root.")
+    fail("安全解压后未找到预期的仓库根目录。")
   }
   root
 }
@@ -287,9 +358,7 @@ async fn write_receipt(path : String, receipt : Json) -> Unit {
   @fs.write_file((path + ".source.json")[:], receipt.stringify()) catch {
     _ =>
       fail(
-        "Acquisition succeeded but its provenance receipt could not be written beside " +
-        path +
-        ".",
+        "仓库已获取，但无法在旁边写入来源记录：" + path + ".",
       )
   }
 }
@@ -307,7 +376,7 @@ async fn github_archive_fallback(
   let zip_path = container + ".download.zip"
   guard @host.resolve("curl") is Some(curl) else {
     fail(
-      "Git failed and curl is unavailable for the public GitHub archive fallback.",
+      "Git 获取失败，并且当前没有 curl，无法使用公开 GitHub ZIP 备用下载。",
     )
   }
   let url = "https://codeload.github.com/" +
@@ -327,17 +396,17 @@ async fn github_archive_fallback(
   )
   guard downloaded.code == 0 && !downloaded.timed_out && @fs.exists(zip_path[:]) else {
     fail(
-      "Git clone and the bounded GitHub archive download both failed. Git: " +
+      "Git 克隆和受限的 GitHub ZIP 下载均失败。Git：" +
       git_failures.join(" | ") +
-      "; archive: " +
+      "；ZIP：" +
       safe_detail(downloaded.output),
     )
   }
   let compressed_size = @fs.file_size(zip_path[:]) catch {
-    _ => fail("Downloaded GitHub archive size could not be verified.")
+    _ => fail("无法验证已下载 GitHub ZIP 的大小。")
   }
   guard compressed_size > 0L && compressed_size <= 104857600L else {
-    fail("Downloaded GitHub archive is empty or exceeds 100 MiB.")
+    fail("已下载的 GitHub ZIP 为空或超过 100 MiB。")
   }
   let expected_root = name + "-" + revision
   let root = extract_zip_safely(zip_path, container, expected_root)
@@ -369,7 +438,7 @@ async fn acquire_github(
 ) -> String {
   let workspace_real = prepare_workspace(workspace)
   guard @host.resolve("git") is Some(git) else {
-    fail("Git is required for the primary repository acquisition path.")
+    fail("获取仓库需要 Git，但当前环境中未找到。")
   }
   let url = "https://github.com/" + owner + "/" + name + ".git"
   let variants : Array[Array[String]] = [
@@ -411,7 +480,7 @@ async fn acquire_github(
   )
   let revision = revision_result.output.trim(chars=" \t\r\n").to_owned()
   guard revision_result.code == 0 && valid_sha(revision) else {
-    fail("The checkout succeeded but its Git revision could not be verified.")
+    fail("仓库已克隆，但无法验证其 Git 提交版本。")
   }
   write_receipt(destination, {
     "schema_version": 1,
@@ -481,15 +550,15 @@ async fn update_local_checkout(
   workspace : String,
 ) -> String {
   let root = @fs.realpath(local_path[:]) catch {
-    _ => fail("Could not canonicalize the local repository directory.")
+    _ => fail("无法解析本地仓库的真实路径。")
   }
   guard @fs.exists(@host.join(root, ".git")[:]) else {
     fail(
-      "A local update requires a Git checkout with public GitHub origin metadata.",
+      "更新本地目录需要有效的 Git 仓库和公开 GitHub origin。",
     )
   }
   guard @host.resolve("git") is Some(git) else {
-    fail("Git is required to check a local repository update.")
+    fail("检查本地仓库更新需要 Git。")
   }
   let origin_result = @host.run(
     git,
@@ -501,7 +570,7 @@ async fn update_local_checkout(
   guard origin_result.code == 0 &&
     origin.has_prefix("https://github.com/") &&
     parse_github_target(origin) is Some((owner, name)) else {
-    fail("Local update requires a credential-free public HTTPS GitHub origin.")
+    fail("本地更新只支持不含凭据的公开 HTTPS GitHub origin。")
   }
   let head_result = @host.run(
     git,
@@ -511,7 +580,7 @@ async fn update_local_checkout(
   )
   let local_head = head_result.output.trim(chars=" \t\r\n").to_owned()
   guard head_result.code == 0 && valid_sha(local_head) else {
-    fail("Local Git HEAD could not be verified.")
+    fail("无法验证本地 Git HEAD。")
   }
   let remote_result = @host.run(
     git,
@@ -522,7 +591,7 @@ async fn update_local_checkout(
   guard remote_result.code == 0 &&
     revision_from_ls_remote(remote_result.output) is Some(remote_head) else {
     fail(
-      "Public origin HEAD could not be verified with git ls-remote; the local checkout was left unchanged.",
+      "无法通过 git ls-remote 验证公开 origin 的 HEAD；本地仓库未被修改。",
     )
   }
   if local_head.to_lower() == remote_head {
@@ -544,21 +613,21 @@ pub async fn acquire(
   update : Bool,
 ) -> String {
   let raw = target.trim(chars=" \t\r\n").to_owned()
-  guard !raw.is_empty() else { fail("Repository target is empty.") }
+  guard !raw.is_empty() else { fail("仓库目标不能为空。") }
   if @fs.exists(raw[:]) {
     guard (@fs.kind(raw[:]) catch { _ => Unknown }) == Directory else {
-      fail("Local repository target is not a directory.")
+      fail("本地仓库目标不是文件夹。")
     }
     if update {
       return update_local_checkout(raw, workspace)
     }
     return @fs.realpath(raw[:]) catch {
-      _ => fail("Could not canonicalize the local repository directory.")
+      _ => fail("无法解析本地仓库的真实路径。")
     }
   }
   guard parse_github_target(raw) is Some((owner, name)) else {
     fail(
-      "Target must be an existing local directory, owner/repo, or https://github.com/owner/repo without credentials.",
+      "目标必须是已有的本地文件夹、owner/repo，或不含凭据的 https://github.com/owner/repo。",
     )
   }
   acquire_github(owner, name, workspace, update)
@@ -568,16 +637,18 @@ pub async fn acquire(
 /// Search public GitHub repositories without sending a private token.
 pub async fn search(query : String) -> Json {
   let clean = query.trim(chars=" \t\r\n").to_owned()
-  guard !clean.is_empty() else { fail("Search query is empty.") }
+  guard !clean.is_empty() else { fail("搜索关键词不能为空。") }
   guard clean.length() <= 256 else {
-    fail("Search query exceeds 256 characters.")
+    fail("搜索关键词不能超过 256 个字符。")
   }
   let encoded = @percent.encode(clean)
   let url = "https://api.github.com/search/repositories?q=" +
     encoded +
     "&per_page=3"
   guard @host.resolve("curl") is Some(curl) else {
-    fail("curl is required for public GitHub search and is not available.")
+    fail(
+      "搜索公开 GitHub 仓库需要 curl，但当前环境中未找到。",
+    )
   }
   let result = @host.run(
     curl,
@@ -590,13 +661,13 @@ pub async fn search(query : String) -> Json {
     25000,
   )
   guard result.code == 0 && !result.timed_out else {
-    fail("GitHub search failed. " + safe_detail(result.output))
+    fail("GitHub 搜索失败。" + safe_detail(result.output))
   }
   let parsed = @json.parse(result.output) catch {
-    _ => fail("GitHub search returned invalid JSON.")
+    _ => fail("GitHub 搜索返回了无效 JSON。")
   }
   guard parsed is Object(fields) && fields.get("items") is Some(Array(items)) else {
-    fail("GitHub search omitted its repository list.")
+    fail("GitHub 搜索结果中没有仓库列表。")
   }
   let summaries : Array[Json] = []
   for item in items {
@@ -616,6 +687,6 @@ pub async fn search(query : String) -> Json {
   {
     "query": clean,
     "items": summaries,
-    "selection": "GitHub relevance order; metadata is not proof that a project runs.",
+    "selection": "按 GitHub 相关度排序；仓库元数据不代表项目已经验证可运行。",
   }
 }

@@ -135,7 +135,7 @@ pub async fn deploy(
         }
       }
   }
-  let health = if health.is_empty() && plan.candidate.ecosystem == "docker" {
+  let mut health = if health.is_empty() && plan.candidate.ecosystem == "docker" {
     let ports = files
       .filter(f => f.path == "Dockerfile")
       .map(f => @lib.docker_exposed_ports(f.content))
@@ -165,6 +165,8 @@ pub async fn deploy(
     }
   }
   let attempts : Array[Json] = []
+  let mut compose_runtime = ""
+  let task_name = "repowayfinder-mb-" + @env.now().to_string()
   if @host.windows() {
     let executable = @afs.realpath(@env.args()[0][:])
     let report_path = @host.join(report_dir, "deployment.json")
@@ -225,13 +227,15 @@ pub async fn deploy(
     root,
     plan.candidate_index,
     "PREPARING",
-    "Checking required runtimes before project execution.",
+    "正在检查项目运行所需的环境。",
     attempts,
     plan.to_json(),
     health,
   )
-  let configuration = configure_project(root, true)
-  println(configuration.stringify())
+  let _ = configure_project(root, true)
+  println(
+    "项目配置已检查：已有配置保持不变，缺失模板按需生成。",
+  )
   for step in plan.steps {
     if step.phase != "preflight" {
       continue
@@ -242,7 +246,7 @@ pub async fn deploy(
         root,
         plan.candidate_index,
         "WAITING_ENVIRONMENT",
-        "Not ready: " + step.program + ". No project commands were started.",
+        step.program + " 尚未就绪，项目命令尚未执行。",
         attempts,
         plan.to_json(),
         health,
@@ -272,14 +276,23 @@ pub async fn deploy(
       args: step.args.map(arg => {
         if arg == "repowayfinder-mb-app" {
           image_name
+        } else if !compose_runtime.is_empty() &&
+          arg == plan.candidate.evidence.file {
+          compose_runtime
         } else {
           arg
         }
       }),
     }
+    if step.phase == "build" &&
+      step.program == "docker" &&
+      step.args[0] == "compose" {
+      step.args.insert(1, "--project-name")
+      step.args.insert(2, task_name)
+    }
     println("[" + step.phase + "] " + step.program + " " + step.args.join(" "))
     if step.phase == "start" {
-      let initial = launch(step, root, health, serve)
+      let initial = launch(step, root, health, serve, task_name)
       let mut status = initial.0
       let mut result = initial.1
       attempts.push({
@@ -293,7 +306,7 @@ pub async fn deploy(
           attempts.push({ "phase": "repair-missing-python", "result": repaired })
           if repaired.code == 0 {
             let (retried_status, retried_result) = launch(
-              step, root, health, serve,
+              step, root, health, serve, task_name,
             )
             status = retried_status
             result = retried_result
@@ -312,7 +325,11 @@ pub async fn deploy(
         health,
       )
     }
-    let mut result = @host.run(step.program, step.args, root, 600000)
+    let mut result = @host.run(step.program, step.args, root, 600000, on_chunk=chunk => {
+      if step.phase != "validate-compose" {
+        println(chunk)
+      }
+    })
     if result.code != 0 &&
       !result.timed_out &&
       ["install", "build"].contains(step.phase) &&
@@ -333,24 +350,62 @@ pub async fn deploy(
           root,
           plan.candidate_index,
           "BLOCKED_SECURITY",
-          "Compose configuration could not be resolved. Inspect it locally; resolved values are not copied to reports.",
+          "无法解析 Compose 配置。请核对项目配置；为避免泄露配置值，不把解析结果直接显示到日志。",
           attempts,
           plan.to_json(),
           health,
         )
       }
-      let config = @json.parse(result.output) catch { _ => Json::null() }
-      if @lib.validate_compose(config, protected_mode) is Err(message) {
-        return save(
-          report_dir,
-          root,
-          plan.candidate_index,
-          "BLOCKED_SECURITY",
-          message,
-          attempts,
-          plan.to_json(),
-          health,
-        )
+      let config = prepare_compose(
+        @json.parse(result.output),
+        root,
+        protected_mode,
+      ) catch {
+        DeploymentError(message) =>
+          return save(
+            report_dir,
+            root,
+            plan.candidate_index,
+            "BLOCKED_SECURITY",
+            message,
+            attempts,
+            plan.to_json(),
+            health,
+          )
+        _ =>
+          return save(
+            report_dir,
+            root,
+            plan.candidate_index,
+            "BLOCKED_SECURITY",
+            "无法读取或核实 Compose 配置。",
+            attempts,
+            plan.to_json(),
+            health,
+          )
+      }
+      compose_runtime = @host.join(report_dir, "compose.runtime.json")
+      @fs.write_string_to_file(compose_runtime, config.stringify(indent=2))
+      if health.is_empty() &&
+        config is Object(top) &&
+        top.get("services") is Some(Object(services)) {
+        for preferred in ["webui", "web", "frontend", "app"] {
+          if services.get(preferred) is Some(Object(service)) &&
+            service.get("ports") is Some(Array(ports)) {
+            for port in ports {
+              if port is Object(fields) &&
+                fields.get("host_ip") == Some(Json("127.0.0.1")) &&
+                fields.get("published") is Some(String(published)) &&
+                @lib.local_health_url("http://127.0.0.1:" + published + "/") {
+                health = "http://127.0.0.1:" + published + "/"
+                break
+              }
+            }
+          }
+          if !health.is_empty() {
+            break
+          }
+        }
       }
       continue
     }
@@ -377,7 +432,7 @@ pub async fn deploy(
       root,
       plan.candidate_index,
       "RUNNING",
-      "Completed " + step.phase,
+      "已完成阶段：" + step.phase,
       attempts,
       plan.to_json(),
       health,
@@ -401,6 +456,7 @@ async fn launch(
   root : String,
   health : String,
   serve : Bool,
+  owned_name : String,
 ) -> (String, @host.CommandResult) {
   let baseline = if health.is_empty() && @host.windows() {
     @host.run("netstat", ["-an", "-p", "TCP"], root, 5000)
@@ -429,7 +485,6 @@ async fn launch(
   }
   @async.with_task_group() <| group => {
     let args = step.args.copy()
-    let owned_name = "repowayfinder-mb-" + @env.now().to_string()
     if step.program == "docker" && args[0] == "compose" {
       args.insert(1, "--project-name")
       args.insert(2, owned_name)
@@ -485,7 +540,11 @@ async fn launch(
         )
         if check.code == 0 {
           if serve {
-            println("HTTP ready: " + probe_url + " (Ctrl+C to stop)")
+            println(
+              "服务已就绪：" +
+              probe_url +
+              "（保持此窗口运行，按 Ctrl+C 停止）",
+            )
             let result = child.wait()
             return (
               if result.code == 0 {
@@ -501,9 +560,9 @@ async fn launch(
             "VERIFIED_HTTP",
             {
               code: 0,
-              output: "HTTP health check passed at " +
+              output: "本地服务健康检查通过：" +
               probe_url +
-              "; verification process stopped.",
+              "；本次验证已结束并停止测试进程。",
               timed_out: false,
             },
           )
@@ -513,7 +572,7 @@ async fn launch(
     }
     if serve {
       println(
-        "Process running; waiting in foreground. No HTTP acceptance evidence yet.",
+        "程序正在前台运行，目前尚未获得 HTTP 健康检查证据。",
       )
       let result = child.wait()
       (if result.code == 0 { "SUCCEEDED" } else { "FAILED" }, result)
@@ -523,7 +582,7 @@ async fn launch(
         "UNVERIFIED_RUNTIME",
         {
           code: 0,
-          output: "Process stayed alive without verified HTTP health; stopped after observation.",
+          output: "进程仍在运行，但未通过 HTTP 健康检查；观察结束后已停止，不判定部署成功。",
           timed_out: false,
         },
       )

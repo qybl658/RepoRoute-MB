@@ -1,4 +1,27 @@
 ///|
+test "Compose builds outside the bounded startup observation" {
+  let files = [
+    @repowayfinder_mbt.source_file(
+      "compose.yaml", "services:\n  app:\n    build: .\n",
+    ),
+  ]
+  let plan = @repowayfinder_mbt.plan_deployment(
+    @repowayfinder_mbt.scan("demo", files),
+    files,
+    None,
+    true,
+  ).unwrap()
+  assert_true(
+    plan.steps.any(step => step.phase == "build" && step.args.contains("build")),
+  )
+  for step in plan.steps {
+    if step.phase == "start" {
+      assert_false(step.args.contains("--build"))
+    }
+  }
+}
+
+///|
 test "Node plan installs lockfile dependencies and builds before starting" {
   let files = [
     @repowayfinder_mbt.source_file(

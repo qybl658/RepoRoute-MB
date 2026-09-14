@@ -304,6 +304,7 @@ pub async fn run(
   cwd : String,
   timeout_ms : Int,
   on_output? : (String) -> Unit = _ => (),
+  on_chunk? : (String) -> Unit = _ => (),
 ) -> CommandResult {
   let (exe, argv) = match command(program, args, cwd) {
     Ok(pair) => pair
@@ -328,7 +329,9 @@ pub async fn run(
         )
       })
       while reader.read_some(max_len=4096) is Some(bytes) {
-        output = output + decode_output(bytes)
+        let chunk = decode_output(bytes)
+        output = output + chunk
+        on_chunk(redact(chunk))
         if output.length() > 65536 {
           output = output[output.length() - 65536:].to_owned()
         }

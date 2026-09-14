@@ -21,5 +21,6 @@ try {
         throw "Packaged launcher did not directly run the native program: $output"
     }
     & (Join-Path $PSScriptRoot 'test-deployment.ps1') -Executable (Join-Path $packageRoot 'RepoWayfinder-MB.exe')
+    & (Join-Path $PSScriptRoot 'test-interactive.ps1') -Executable (Join-Path $packageRoot 'RepoWayfinder-MB.exe') -Bootstrap (Join-Path $packageRoot 'scripts/bootstrap.ps1')
     [pscustomobject]@{status='passed'; source_commit=$manifest.source_commit; zip=$archivePath; sha256=(Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash; evidence=$testRoot} | ConvertTo-Json
 } finally { $env:REPOWAYFINDER_NO_PAUSE = $savedPause }

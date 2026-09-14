@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$BuildOnly,
     [switch]$ForceBuild,
@@ -54,7 +54,7 @@ function Find-Moon {
     if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
         $requested = Find-FirstFile @($RequestedPath)
         if ($null -eq $requested) {
-            throw "The requested MoonBit executable does not exist: $RequestedPath"
+            throw "指定的 MoonBit 可执行文件不存在：$RequestedPath"
         }
         return $requested
     }
@@ -87,22 +87,19 @@ function Find-Moon {
 }
 
 if (-not (Test-Path -LiteralPath $ProjectRoot -PathType Container)) {
-    throw "Project root does not exist: $ProjectRoot"
+    throw "项目根目录不存在：$ProjectRoot"
 }
 
 $runLog = Join-Path $ProjectRoot 'run.md'
 $script:TranscriptStarted = $false
 
 function Stop-RunTranscript {
-    if ($script:TranscriptStarted) {
-        Stop-Transcript | Out-Null
-        $script:TranscriptStarted = $false
-    }
+    $script:TranscriptStarted = $false
 }
 
 trap {
     $message = $_.Exception.Message
-    Write-Host "RepoWayfinder-MB launcher failed: $message" -ForegroundColor Red
+    Write-Host "RepoWayfinder-MB 启动失败：$message" -ForegroundColor Red
     Stop-RunTranscript
     exit 1
 }
@@ -112,14 +109,16 @@ if (Test-Path -LiteralPath $runLog -PathType Leaf) {
     $previousRun = Join-Path $ProjectRoot "run.previous.$stamp.md"
     Copy-Item -LiteralPath $runLog -Destination $previousRun
 }
-Start-Transcript -LiteralPath $runLog -Force | Out-Null
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding
+Set-Content -LiteralPath $runLog -Encoding UTF8 -Value ('# RepoWayfinder 运行记录' + "`r`n" + (Get-Date -Format o))
 $script:TranscriptStarted = $true
 
 $executable = $null
 if (-not [string]::IsNullOrWhiteSpace($ExecutablePath)) {
     $executable = Find-FirstFile @($ExecutablePath)
     if ($null -eq $executable) {
-        throw "Requested RepoWayfinder executable does not exist: $ExecutablePath"
+        throw "指定的 RepoWayfinder 可执行文件不存在：$ExecutablePath"
     }
 } elseif (-not $ForceBuild) {
     $executable = Find-PackagedExecutable -Root $ProjectRoot
@@ -129,9 +128,9 @@ if ($null -eq $executable) {
     $moon = Find-Moon -RequestedPath $MoonPath
     if ($null -eq $moon) {
         throw @'
-MoonBit was not found. A packaged RepoWayfinder-MB executable can run without a compiler.
-For a source checkout, install MoonBit from https://www.moonbitlang.com/download/ or run the CLI environment repair flow after reviewing its prompt.
-No PATH or machine setting was changed.
+未找到 MoonBit。若使用已打包的 RepoWayfinder-MB 可执行文件，则不需要编译器。
+若当前是源码目录，请从 https://www.moonbitlang.com/download/ 安装 MoonBit，或查看 CLI 提示后运行环境修复流程。
+本次操作没有修改 PATH 或任何机器设置。
 '@
     }
 
@@ -143,7 +142,7 @@ No PATH or machine setting was changed.
         $env:Path = "$moonBin;$env:Path"
     }
 
-    Write-Host "Building the native RepoWayfinder-MB executable with: $moon"
+    Write-Host "正在使用以下 MoonBit 工具链构建 RepoWayfinder-MB 原生可执行文件：$moon"
     Push-Location $ProjectRoot
     try {
         & $moon build --target native --release cmd/main
@@ -152,16 +151,16 @@ No PATH or machine setting was changed.
         Pop-Location
     }
     if ($buildExitCode -ne 0) {
-        throw "MoonBit native build failed with exit code $buildExitCode."
+        throw "MoonBit 原生构建失败，退出代码：$buildExitCode。"
     }
     $executable = Find-BuiltExecutable -Root $ProjectRoot
     if ($null -eq $executable) {
-        throw 'MoonBit reported success, but the expected native executable was not produced.'
+        throw 'MoonBit 报告构建成功，但没有生成预期的原生可执行文件。'
     }
 }
 
 if ($BuildOnly) {
-    Write-Host "Native executable ready: $executable"
+    Write-Host "原生可执行文件已就绪：$executable"
     Stop-RunTranscript
     exit 0
 }
@@ -181,7 +180,11 @@ if ($null -ne $CliArgs -and $CliArgs.Count -gt 0) {
 
 Push-Location $ProjectRoot
 try {
-    & $executable @effectiveArgs
+    & $executable @effectiveArgs 2>&1 | ForEach-Object {
+        $line = $_.ToString()
+        Add-Content -LiteralPath $runLog -Value $line -Encoding UTF8
+        [Console]::WriteLine($line)
+    }
     $cliExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

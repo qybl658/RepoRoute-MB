@@ -117,7 +117,7 @@ test "MoonBit installer transformation is exact and removes persistent writes" {
   }
   assert_true(portable.contains("$MoonHome\\moonbit.zip"))
   assert_false(portable.contains("SetEnvironmentVariable(\"PATH\""))
-  assert_true(portable.contains("PATH was not changed"))
+  assert_true(portable.contains("未修改 PATH"))
   assert_eq(
     portable_moonbit_installer(
       official.replace_all(old="Please restart", new="Please reboot"),

@@ -24,6 +24,8 @@ pub fn missing_known_python_package(String) -> String?
 
 pub fn normalize_ai_plan(@repowayfinder_mbt.AiDeploymentProposal, Bool) -> @repowayfinder_mbt.DeploymentPlan raise
 
+pub async fn prepare_compose(Json, String, Bool) -> Json
+
 pub async fn probe(String, Array[String], String) -> Int
 
 pub async fn resume_deployment(String, Bool, Bool, Bool, Bool) -> Json

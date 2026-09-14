@@ -12,6 +12,34 @@ test "accepts only safe public GitHub targets" {
   assert_eq(parse_github_target("https://user:secret@github.com/a/b"), None)
   assert_eq(parse_github_target("https://github.com/a/--upload-pack=x"), None)
   assert_eq(parse_github_target("https://github.com/a/b/extra"), None)
+  assert_true(is_github_target("owner/repository"))
+  assert_false(is_github_target("AI Agent"))
+  assert_true(is_local_path_hint("D:\\projects\\agent"))
+  assert_true(is_local_path_hint("./local-agent"))
+  assert_false(is_local_path_hint("AI Agent"))
+}
+
+///|
+test "search results become bounded safe interactive candidates" {
+  let candidates = search_candidates({
+    "items": [
+      {
+        "full_name": "owner/agent-one",
+        "description": "First agent",
+        "language": "Python",
+        "stargazers_count": 42,
+        "archived": false,
+      },
+      { "full_name": "unsafe extra path/name", "stargazers_count": 99 },
+      { "full_name": "owner/agent-two", "description": null, "archived": true },
+    ],
+  })
+  assert_eq(candidates.length(), 2)
+  assert_eq(candidates[0].full_name, "owner/agent-one")
+  assert_eq(candidates[0].stars, 42)
+  assert_eq(candidates[1].language, "未知")
+  assert_true(candidates[1].archived)
+  assert_eq(search_candidates({ "items": "invalid" }), [])
 }
 
 ///|

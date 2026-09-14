@@ -2,8 +2,39 @@
 extern "C" fn exit_with_code(code : Int) -> Unit = "exit"
 
 ///|
-fn finish(report : Json) -> Unit {
-  println(report.stringify(indent=2))
+fn localized_status(status : String) -> String {
+  match status {
+    "SUCCEEDED" => "运行成功"
+    "VERIFIED_HTTP" => "已通过本地网页检查"
+    "WAITING_ENVIRONMENT" => "等待准备运行环境"
+    "BLOCKED_SECURITY" => "已被安全检查阻止"
+    "BLOCKED_HEALTH_PORT" => "本地检查端口已被占用"
+    "UNVERIFIED_RUNTIME" => "项目仍在运行，但尚未验证可用性"
+    "LEARN" => "未发现可靠的自动运行入口"
+    "PREPARING" => "计划已生成，尚未执行"
+    "RUNNING" => "项目正在运行"
+    "FAILED" => "运行失败"
+    _ => status
+  }
+}
+
+///|
+fn finish(report : Json, interactive : Bool) -> Unit {
+  if interactive && report is Object(obj) {
+    let status = match obj.get("status") {
+      Some(String(value)) => value
+      _ => "UNKNOWN"
+    }
+    println("\n结果：" + localized_status(status))
+    if obj.get("detail") is Some(String(detail)) && !detail.is_empty() {
+      println("说明：" + detail)
+    }
+    if obj.get("report_dir") is Some(String(path)) && !path.is_empty() {
+      println("报告：" + path)
+    }
+  } else {
+    println(report.stringify(indent=2))
+  }
   if report is Object(obj) && obj.get("status") is Some(String(status)) {
     if status == "WAITING_ENVIRONMENT" {
       exit_with_code(20)
@@ -15,6 +46,64 @@ fn finish(report : Json) -> Unit {
       exit_with_code(21)
     }
   }
+}
+
+///|
+fn compact_text(value : String, maximum : Int) -> String {
+  let clean = value
+    .replace_all(old="\r", new=" ")
+    .replace_all(old="\n", new=" ")
+    .trim(chars=" \t")
+    .to_owned()
+  if clean.length() > maximum {
+    clean[:maximum].to_owned() + "…"
+  } else {
+    clean
+  }
+}
+
+///|
+async fn choose_repository(query : String) -> String? {
+  println("正在按关键词搜索公开 GitHub 仓库：" + query)
+  let result = @repository.search(query)
+  let candidates = @repository.search_candidates(result)
+  if candidates.is_empty() {
+    println(
+      "没有找到可选择的公开仓库。请换一个关键词，或输入 owner/repo。",
+    )
+    return None
+  }
+  println("找到以下仓库：")
+  for index, candidate in candidates {
+    let archived = if candidate.archived { " · 已归档" } else { "" }
+    println(
+      "[" + (index + 1).to_string() + "] " + candidate.full_name + archived,
+    )
+    println(
+      "    语言：" +
+      candidate.language +
+      " · 星标：" +
+      candidate.stars.to_string(),
+    )
+    if !candidate.description.is_empty() {
+      println("    简介：" + compact_text(candidate.description, 100))
+    }
+  }
+  println("输入编号开始部署，直接回车取消：")
+  guard @stdio.stdin.read_until("\n") is Some(line) else { return None }
+  let answer = line.trim(chars=" \t\r\n")
+  if answer.is_empty() {
+    println("已取消，没有下载或运行项目。")
+    return None
+  }
+  let choice = @string.parse_int(answer) catch { _ => 0 }
+  if choice < 1 || choice > candidates.length() {
+    println("编号无效，没有下载或运行项目。")
+    return None
+  }
+  let selected = candidates[choice - 1].full_name
+  println("已选择：" + selected)
+  Some(selected)
 }
 
 ///|
@@ -78,16 +167,16 @@ async fn entry() -> Unit {
     "--ai", "--ai-plan",
   ]
   if args.contains("--compatible") && args.contains("--protected") {
-    raise @runtime.DeploymentError("Choose one deployment mode.")
+    raise @runtime.DeploymentError("只能选择一种部署模式。")
   }
   for i in 1..<args.length() {
     if args[i].has_prefix("--") {
       if option_values.contains(args[i]) {
         if i + 1 >= args.length() || args[i + 1].has_prefix("--") {
-          raise @runtime.DeploymentError("Missing value for " + args[i])
+          raise @runtime.DeploymentError("选项缺少参数：" + args[i])
         }
       } else if !option_flags.contains(args[i]) {
-        raise @runtime.DeploymentError("Unknown option: " + args[i])
+        raise @runtime.DeploymentError("未知选项：" + args[i])
       }
     }
   }
@@ -99,6 +188,7 @@ async fn entry() -> Unit {
   }
   let mut execute = args.contains("--execute")
   let mut trust = args.contains("--trust-project")
+  let mut interactive = false
   if action.is_empty() {
     println(
       "RepoWayfinder MB\n输入 GitHub 仓库地址或本地项目目录（空行退出）：",
@@ -107,10 +197,17 @@ async fn entry() -> Unit {
     guard input is Some(input) && !input.trim().is_empty() else { return }
     target = input.trim().to_owned()
     action = "deploy"
-    execute = @host.prompt(
-      "是否准备依赖并运行该项目？这会在本机执行第三方代码。",
-    )
-    trust = execute
+    execute = true
+    trust = true
+    interactive = true
+    if !@fs.path_exists(target) &&
+      !@repository.is_github_target(target) &&
+      !@repository.is_local_path_hint(target) {
+      guard choose_repository(target) is Some(selected_repository) else {
+        return
+      }
+      target = selected_repository
+    }
   }
   if action == "doctor" {
     println(@environment.doctor().stringify(indent=2))
@@ -199,6 +296,7 @@ async fn entry() -> Unit {
         args.contains("--install"),
         args.contains("--serve"),
       ),
+      false,
     )
     return
   }
@@ -216,10 +314,10 @@ async fn entry() -> Unit {
       if !@environment.ensure(
           "git",
           @host.app_root(),
-          args.contains("--install"),
+          args.contains("--install") || interactive,
         ) {
         println(
-          "WAITING_ENVIRONMENT: Git is not ready; no project commands started.",
+          "正在等待运行环境：Git 尚未就绪，项目命令没有开始执行。",
         )
         exit_with_code(20)
         return
@@ -233,7 +331,7 @@ async fn entry() -> Unit {
   }
   if action == "scan" {
     if !@fs.path_exists(root) {
-      raise @runtime.DeploymentError("Directory does not exist: " + root)
+      raise @runtime.DeploymentError("目录不存在：" + root)
     }
     let result = @lib.scan(root, @runtime.collect(root))
     println(
@@ -262,7 +360,7 @@ async fn entry() -> Unit {
     }
     if !trust {
       raise @runtime.DeploymentError(
-        "AI plan execution requires --trust-project.",
+        "执行 AI 计划还需要 --trust-project。",
       )
     }
     if !@host.prompt(
@@ -283,6 +381,7 @@ async fn entry() -> Unit {
         args.contains("--serve"),
         mode,
       ),
+      false,
     )
     return
   }
@@ -303,7 +402,7 @@ async fn entry() -> Unit {
     ) catch {
       _ => {
         println(
-          "AI selection unavailable or invalid; retaining deterministic candidates.",
+          "AI 选择不可用或结果无效；继续使用本地确定性候选项。",
         )
         None
       }
@@ -334,14 +433,31 @@ async fn entry() -> Unit {
     trust,
     args.contains("--install") || args.length() <= 1,
     value(args, "--health-url", ""),
-    args.contains("--serve"),
+    args.contains("--serve") || interactive,
     protected_mode,
     None,
   )
-  finish(report)
+  finish(report, interactive)
 }
 
 ///|
 async fn main {
-  entry()
+  entry() catch {
+    @repository.Failure(message) => {
+      println("仓库操作失败：" + message)
+      exit_with_code(1)
+    }
+    @runtime.DeploymentError(message) => {
+      println("操作失败：" + message)
+      exit_with_code(1)
+    }
+    @advisor.Failure(message) => {
+      println("AI 操作失败：" + message)
+      exit_with_code(1)
+    }
+    error => {
+      println("操作失败：" + "\{error}")
+      exit_with_code(1)
+    }
+  }
 }

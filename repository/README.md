@@ -17,6 +17,10 @@ Public API:
 - `search(query)` calls the public GitHub repository search API through bounded
   `curl` arguments without a token and returns three compact results in GitHub
   relevance order. Stars, language and update time are context, not deployment evidence.
+- `is_github_target(text)` and `is_local_path_hint(text)` distinguish supported
+  repository identifiers or explicit paths from ordinary search keywords.
+  `search_candidates(json)` produces at most three safe typed entries for the
+  interactive numbered chooser.
 
 The package never persists Git configuration and rejects credential-bearing,
 HTTP, non-GitHub, private, or option-shaped URL inputs. Existing paths are never

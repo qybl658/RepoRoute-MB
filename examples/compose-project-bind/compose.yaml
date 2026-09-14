@@ -1,0 +1,8 @@
+services:
+  app:
+    image: node:22-alpine
+    container_name: repowayfinder-fixed-name-must-not-be-used
+    restart: always
+    volumes:
+      - ./:/work
+    command: ["node", "-e", "console.log('project-bind-ok')"]

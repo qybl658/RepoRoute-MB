@@ -94,7 +94,7 @@ Windows 配置使用系统凭据窗口和当前用户 DPAPI 加密。也可通�
 - `VERIFIED_HTTP`：启动后本地 HTTP 检查通过；验证模式随后停止程序。
 - `UNVERIFIED_RUNTIME`：进程未退出但缺少健康证据，不算部署成功。
 
-这不是沙箱。依赖安装与启动都会执行仓库代码；请先确认来源。绑定宿主目录等高风险 Compose 配置需要人工处理。自动识别仍有范围限制，复杂 monorepo、非标准 README 步骤和特殊系统组件不能承诺无人值守。具体验证状态见 [验证记录](docs/verification.md)，后续工作见 [ROADMAP](ROADMAP.md)。
+这不是沙箱。依赖安装与启动都会执行仓库代码；请先确认来源。Compose 仅自动接受实际路径位于项目内的目录挂载，项目外目录和 Docker 控制接口仍会被阻止；运行配置使用独立名称、本地端口和不自动重启策略，不改写原项目配置。自动识别仍有范围限制，复杂 monorepo、非标准 README 步骤和特殊系统组件不能承诺无人值守。具体验证状态见 [验证记录](docs/verification.md)，后续工作见 [ROADMAP](ROADMAP.md)。
 
 ## 开发与库接口
 
