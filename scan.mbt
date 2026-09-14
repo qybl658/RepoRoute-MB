@@ -45,6 +45,23 @@ fn evidence(file : SourceFile, needle : StringView) -> Evidence {
 }
 
 ///|
+fn evidence_after(
+  file : SourceFile,
+  section : StringView,
+  needle : StringView,
+) -> Evidence {
+  guard file.content.find(section) is Some(section_start) else {
+    return evidence(file, needle)
+  }
+  guard file.content[section_start:].find(needle) is Some(relative_start) else {
+    return evidence(file, needle)
+  }
+  let absolute_start = section_start + relative_start
+  let line = line_number(file.content, file.content[absolute_start:])
+  { file: file.path, line, excerpt: line_excerpt(file.content, line), }
+}
+
+///|
 fn package_manager(files : Array[SourceFile]) -> (String, String) {
   if find_file(files, "pnpm-lock.yaml") is Some(_) {
     ("pnpm", "pnpm")
@@ -106,7 +123,7 @@ fn add_node_candidates(
         },
         prerequisites: [prerequisite],
         reason: "Explicit package.json script '\{name}' (\{script})",
-        evidence: evidence(file, "\"\{name}\""),
+        evidence: evidence_after(file, "\"scripts\"", "\"\{name}\""),
       })
     }
   }

@@ -69,3 +69,18 @@ test "Windows and explicitly relative paths are normalized" {
   assert_eq(contract.candidates[0].command, "pnpm start")
   assert_eq(contract.candidates[0].evidence.file, "package.json")
 }
+
+///|
+test "node evidence points inside scripts with CRLF input" {
+  let contract = @reporoute_mbt.scan("fixture/evidence", [
+    @reporoute_mbt.source_file(
+      "package.json", "{\r\n  \"start\": false,\r\n  \"scripts\": {\r\n    \"start\": \"node server.js\"\r\n  }\r\n}",
+    ),
+  ])
+  assert_eq(contract.candidates.length(), 1)
+  assert_eq(contract.candidates[0].evidence.line, 4)
+  assert_eq(
+    contract.candidates[0].evidence.excerpt,
+    "\"start\": \"node server.js\"",
+  )
+}
