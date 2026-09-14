@@ -1,0 +1,7 @@
+import {
+  "qybl658/reporoute_mbt" @lib,
+  "moonbitlang/core/env",
+  "moonbitlang/x/fs",
+}
+
+pkgtype(kind: "executable")
