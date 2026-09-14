@@ -32,6 +32,7 @@ moon run cmd/main -- C:\path\to\repository --format markdown
 ## Library
 
 The pure `scan(root, files)` API accepts an array of `SourceFile` values. This keeps parsers deterministic and easy to test; filesystem access stays in the CLI adapter.
+Input file paths accept both Windows and POSIX separators and are normalized in emitted evidence.
 
 ## Verify
 

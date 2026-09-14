@@ -1,7 +1,13 @@
 ///|
 fn find_file(files : Array[SourceFile], path : String) -> SourceFile? {
   for file in files {
-    if file.path == path {
+    let normalized = file.path.replace_all(old="\\", new="/")
+    let normalized = if normalized.has_prefix("./") {
+      normalized[2:].to_owned()
+    } else {
+      normalized
+    }
+    if normalized == path {
       return Some(file)
     }
   }

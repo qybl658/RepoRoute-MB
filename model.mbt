@@ -40,7 +40,13 @@ pub(all) struct RunContract {
 
 ///|
 pub fn source_file(path : String, content : String) -> SourceFile {
-  { path, content, }
+  let slash_path = path.replace_all(old="\\", new="/")
+  let normalized = if slash_path.has_prefix("./") {
+    slash_path[2:].to_owned()
+  } else {
+    slash_path
+  }
+  { path: normalized, content, }
 }
 
 ///|

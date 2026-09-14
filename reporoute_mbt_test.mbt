@@ -56,3 +56,16 @@ test "markdown includes command and exact evidence location" {
   assert_true(markdown.contains("moon run cmd/main"))
   assert_true(markdown.contains("moon.mod:1"))
 }
+
+///|
+test "Windows and explicitly relative paths are normalized" {
+  let contract = @reporoute_mbt.scan("fixture/windows", [
+    @reporoute_mbt.source_file(
+      ".\\package.json", "{\"scripts\": {\"start\": \"node index.js\"}}",
+    ),
+    @reporoute_mbt.source_file(".\\pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+  ])
+  assert_eq(contract.candidates.length(), 1)
+  assert_eq(contract.candidates[0].command, "pnpm start")
+  assert_eq(contract.candidates[0].evidence.file, "package.json")
+}
