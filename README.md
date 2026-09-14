@@ -11,7 +11,7 @@ Unfamiliar repositories often expose several plausible launch routes through pac
 | Ecosystem | Evidence | Candidate |
 |---|---|---|
 | Node.js | `package.json` scripts plus npm/pnpm/yarn/bun lockfile | matching package-manager script |
-| Python | `[project.scripts]` in `pyproject.toml` | installed console script |
+| Python | `[project.scripts]` and `[project.gui-scripts]` in `pyproject.toml` | installed entrypoint |
 | Rust | `[package]` in `Cargo.toml` | `cargo run` |
 | MoonBit | `moon.mod` plus `cmd/main/moon.pkg` | `moon run cmd/main` |
 | Docker | executable `CMD`/`ENTRYPOINT` instructions, excluding comments | build and run candidate |

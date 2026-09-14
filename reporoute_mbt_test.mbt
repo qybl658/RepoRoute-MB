@@ -138,3 +138,17 @@ test "Docker runtime evidence follows the first real instruction" {
   assert_eq(contract.candidates[0].evidence.line, 3)
   assert_true(contract.candidates[0].reason.contains("ENTRYPOINT"))
 }
+
+///|
+test "PEP 621 console and GUI scripts both produce clean commands" {
+  let contract = @reporoute_mbt.scan("fixture/python-scripts", [
+    @reporoute_mbt.source_file(
+      "pyproject.toml", "[project.scripts]\n'route-cli' = 'demo.cli:main'\n\n[project]\nname = \"demo\"\n\n[project.gui-scripts]\n\"route-ui\" = \"demo.ui:main\"\n",
+    ),
+  ])
+  assert_eq(contract.candidates.length(), 2)
+  assert_eq(contract.candidates[0].command, "route-cli")
+  assert_eq(contract.candidates[1].command, "route-ui")
+  assert_true(contract.candidates[1].reason.contains("GUI"))
+  assert_eq(contract.candidates[1].evidence.line, 8)
+}

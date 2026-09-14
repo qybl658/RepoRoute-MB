@@ -179,23 +179,26 @@ fn add_python_candidates(
   candidates : Array[Candidate],
 ) -> Unit {
   guard find_file(files, "pyproject.toml") is Some(file) else { return }
-  let mut in_scripts = false
+  let mut script_kind = ""
   let mut line_number = 0
   for raw_line in file.content.split("\n") {
     line_number = line_number + 1
     let line = raw_line.trim(chars=" \t\r").to_owned()
-    if line == "[project.scripts]" {
-      in_scripts = true
+    if line.has_prefix("[") {
+      script_kind = if line == "[project.scripts]" {
+        "console"
+      } else if line == "[project.gui-scripts]" {
+        "GUI"
+      } else {
+        ""
+      }
       continue
     }
-    if in_scripts && line.has_prefix("[") {
-      break
-    }
-    if in_scripts &&
+    if !script_kind.is_empty() &&
       !line.has_prefix("#") &&
       line.split_once("=") is Some((left, right)) {
-      let name = left.trim(chars=" \t").to_owned()
-      let target = right.trim(chars=" \t\"").to_owned()
+      let name = left.trim(chars=" \t\"'").to_owned()
+      let target = right.trim(chars=" \t\"'").to_owned()
       if !name.is_empty() && !target.is_empty() {
         candidates.push({
           ecosystem: "python",
@@ -203,7 +206,7 @@ fn add_python_candidates(
           workdir: ".",
           confidence: 90,
           prerequisites: ["Python and an installed project environment"],
-          reason: "Explicit PEP 621 console script targeting \{target}",
+          reason: "Explicit PEP 621 \{script_kind} script targeting \{target}",
           evidence: { file: file.path, line: line_number, excerpt: line, },
         })
       }
