@@ -450,7 +450,12 @@ fn revision_from_ls_remote(output : String) -> String? {
 ///|
 fn normalized_path_text(value : String) -> String {
   let path : @path.Path = value
-  path.resolve().to_string().replace_all(old="\\", new="/").to_lower()
+  let resolved = path.resolve().to_string()
+  if @host.windows() {
+    resolved.replace_all(old="\\", new="/").to_lower()
+  } else {
+    resolved
+  }
 }
 
 ///|

@@ -43,15 +43,15 @@ test "archive entry validation rejects traversal and filesystem tricks" {
 
 ///|
 test "local update workspace never nests a replacement inside the checkout" {
-  let root = "C:\\work\\project"
+  let parent = if @host.windows() { "C:/work" } else { "/work" }
+  let root = parent + "/project"
+  let other = if @host.windows() { "D:/downloads" } else { "/downloads" }
   assert_eq(
-    normalized_path_text(
-      safe_update_workspace("C:\\work\\project\\downloads", root),
-    ),
-    normalized_path_text("C:\\work"),
+    normalized_path_text(safe_update_workspace(root + "/downloads", root)),
+    normalized_path_text(parent),
   )
   assert_eq(
-    normalized_path_text(safe_update_workspace("D:\\downloads", root)),
-    normalized_path_text("D:\\downloads"),
+    normalized_path_text(safe_update_workspace(other, root)),
+    normalized_path_text(other),
   )
 }
