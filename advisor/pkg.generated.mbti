@@ -1,0 +1,26 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "qybl658/repowayfinder_mbt/advisor"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub async fn analyze(String, String, Bool) -> Json
+
+pub async fn choose_candidate(String, String, Array[String], Bool) -> Int?
+
+pub async fn configure(String, String) -> Json
+
+pub fn get_settings() -> Json raise Failure
+
+// Errors
+pub suberror Failure {
+  Failure(String)
+} derive(ToJson, @debug.Debug)
+
+// Types and methods
+
+// Type aliases
+
+// Traits
