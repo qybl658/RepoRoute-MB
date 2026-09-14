@@ -35,6 +35,8 @@ The pure `scan(root, files)` API accepts an array of `SourceFile` values. This k
 
 ## Verify
 
+Every push and pull request runs the same checks on both Windows and Linux through GitHub Actions.
+
 ```powershell
 moon fmt --check
 moon check --deny-warn
