@@ -253,6 +253,10 @@ async fn entry() -> Unit {
       args.contains("--allow-send"),
     )
     println(proposal.to_json().stringify(indent=2))
+    if proposal.to_json() is Object(fields) &&
+      fields.get("action") != Some(Json("DEPLOY")) {
+      return
+    }
     if !execute {
       return
     }
