@@ -2,6 +2,9 @@
 extern "C" fn exit_with_code(code : Int) -> Unit = "exit"
 
 ///|
+extern "C" fn console_unbuffered() -> Unit = "repowayfinder_console_unbuffered"
+
+///|
 fn localized_status(status : String) -> String {
   match status {
     "SUCCEEDED" => "运行成功"
@@ -442,6 +445,7 @@ async fn entry() -> Unit {
 
 ///|
 async fn main {
+  console_unbuffered()
   entry() catch {
     @repository.Failure(message) => {
       println("仓库操作失败：" + message)

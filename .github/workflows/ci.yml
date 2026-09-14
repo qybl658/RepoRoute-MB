@@ -59,3 +59,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-deployment.ps1
+
+      - name: Verify prompt before interactive input
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-interactive.ps1

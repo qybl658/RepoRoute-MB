@@ -18,12 +18,19 @@ $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
 $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
 foreach ($arg in @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',([IO.Path]::GetFullPath($Bootstrap)),'-ExecutablePath',([IO.Path]::GetFullPath($Executable)),'-ProjectRoot',$testRoot)) { $start.ArgumentList.Add($arg) }
 $process = [Diagnostics.Process]::Start($start)
+$firstLine = $process.StandardOutput.ReadLineAsync()
+if (-not $firstLine.Wait(5000)) { $process.Kill($true); throw 'No visible prompt before user input (stdout buffering).' }
+$prefix = $firstLine.GetAwaiter().GetResult()
+$promptLine = $process.StandardOutput.ReadLineAsync()
+if (-not $promptLine.Wait(5000)) { $process.Kill($true); throw 'Input prompt did not become visible.' }
+$prefix += "`n" + $promptLine.GetAwaiter().GetResult()
+if (-not $prefix.Contains('GitHub')) { $process.Kill($true); throw "Unexpected startup prompt: $prefix" }
 $stdout = $process.StandardOutput.ReadToEndAsync()
 $stderr = $process.StandardError.ReadToEndAsync()
 $process.StandardInput.WriteLine($testRoot)
 $process.StandardInput.Close()
 if (-not $process.WaitForExit(60000)) { $process.Kill($true); throw 'Interactive launcher timed out.' }
-$output = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+$output = $prefix + "`n" + $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
 $log = Get-Content -LiteralPath (Join-Path $testRoot 'run.md') -Raw -Encoding UTF8
 $success = [string]::Concat([char]0x8FD0,[char]0x884C,[char]0x6210,[char]0x529F)
 if ($process.ExitCode -ne 0 -or -not $output.Contains($success) -or -not $log.Contains($success)) { throw "Interactive execution/log failed: $output`nLOG: $log" }
