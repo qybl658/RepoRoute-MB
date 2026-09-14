@@ -1,0 +1,6 @@
+{
+  "name": "repowayfinder-waiting-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {"start": "node should-not-run.js"}
+}

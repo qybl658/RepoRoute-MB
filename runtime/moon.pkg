@@ -1,0 +1,11 @@
+import {
+  "qybl658/repowayfinder_mbt" @lib,
+  "qybl658/repowayfinder_mbt/host",
+  "qybl658/repowayfinder_mbt/environment",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/x/fs",
+  "moonbitlang/async",
+  "moonbitlang/async/fs" @afs,
+  "moonbitlang/async/process",
+}

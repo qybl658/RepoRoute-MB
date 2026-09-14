@@ -1,0 +1,4 @@
+services:
+  demo:
+    image: node:22-alpine
+    command: ["node", "-e", "console.log('RepoWayfinder MB: Compose deployment succeeded')"]

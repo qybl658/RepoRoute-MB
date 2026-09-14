@@ -1,0 +1,36 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "qybl658/repowayfinder_mbt/runtime"
+
+import {
+  "qybl658/repowayfinder_mbt",
+}
+
+// Values
+pub fn collect(String) -> Array[@repowayfinder_mbt.SourceFile]
+
+pub fn configure_project(String, Bool) -> Json raise
+
+pub async fn deploy(String, Int?, Bool, Bool, Bool, String, Bool, Bool, String?) -> Json
+
+pub async fn deployment_mode(Bool, Bool) -> Bool
+
+pub fn diagnose(String) -> Json raise
+
+pub fn missing_known_python_package(String) -> String?
+
+pub async fn probe(String, Array[String], String) -> Int
+
+pub async fn resume_deployment(String, Bool, Bool, Bool, Bool) -> Json
+
+pub fn transient_network_failure(String) -> Bool
+
+// Errors
+pub(all) suberror DeploymentError {
+  DeploymentError(String)
+}
+
+// Types and methods
+
+// Type aliases
+
+// Traits
