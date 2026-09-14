@@ -81,6 +81,23 @@ test "settings never expose an environment credential" {
 }
 
 ///|
+test "deployment planning requires a README context source" {
+  assert_true(
+    context_has_readme([
+      { "path": "README.md", "bytes": 12 },
+      { "path": "package.json", "bytes": 20 },
+    ]),
+  )
+  assert_true(context_has_readme([{ "path": "README.zh-CN.md", "bytes": 12 }]))
+  assert_false(
+    context_has_readme([
+      { "path": "package.json", "bytes": 20 },
+      { "path": "pyproject.toml", "bytes": 20 },
+    ]),
+  )
+}
+
+///|
 async test "DPAPI helper roundtrips only synthetic non-secret data" {
   if !@host.windows() {
     return

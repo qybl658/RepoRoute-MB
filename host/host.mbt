@@ -90,6 +90,12 @@ pub fn safe_env() -> Map[String, String] {
   result["PYTHONIOENCODING"] = "utf-8"
   result["NO_COLOR"] = "1"
   let dirs : Array[String] = []
+  for leaf in ["git/cmd", "git/usr/bin", "node", "python"] {
+    let path = join(tool_root(), leaf)
+    if @fs.path_exists(path) && (@fs.is_dir(path) catch { _ => false }) {
+      dirs.push(path)
+    }
+  }
   for
     program in [
       "node", "python", "git", "moon", "docker", "pnpm", "yarn", "bun",
@@ -158,6 +164,10 @@ pub fn resolve(program : String) -> String? {
     tool_root(),
     join(tool_root(), "moon/bin"),
     join(tool_root(), "node_modules/.bin"),
+    join(tool_root(), "git/cmd"),
+    join(tool_root(), "git/usr/bin"),
+    join(tool_root(), "node"),
+    join(tool_root(), "python"),
   ]
   if @env.get_env_var("MOON_HOME") is Some(home) {
     dirs.push(join(home, "bin"))

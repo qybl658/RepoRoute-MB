@@ -2,6 +2,31 @@
 let official_moonbit_installer_url = "https://cli.moonbitlang.com/install/powershell.ps1"
 
 ///|
+let mingit_version = "2.55.0.2"
+
+///|
+let mingit_filename = "MinGit-2.55.0.2-64-bit.zip"
+
+///|
+let mingit_url = "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.2/MinGit-2.55.0.2-64-bit.zip"
+
+///|
+/// SHA-256 published by the official Git for Windows GitHub release API.
+let mingit_sha256 = "e3ea2944cea4b3fabcd69c7c1669ef69b1b66c05ac7806d81224d0abad2dec31"
+
+///|
+let node_index_url = "https://nodejs.org/dist/index.json"
+
+///|
+let python_direct_version = "3.11.9"
+
+///|
+let python_direct_filename = "python-3.11.9-amd64.exe"
+
+///|
+let python_direct_url = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+
+///|
 priv struct Probe {
   name : String
   executable : String?
@@ -90,7 +115,31 @@ fn winget_confirmed_absent(code : Int, output : String) -> Bool {
 ///|
 fn resolve_alias(program : String) -> String? {
   let name = normalize(program)
-  if name == "moon" {
+  if name == "git" {
+    let local_git = join(@host.tool_root(), "git/cmd/git.exe")
+    if @fs.path_exists(local_git) &&
+      (@fs.is_file(local_git) catch { _ => false }) {
+      Some(local_git)
+    } else {
+      @host.resolve(name)
+    }
+  } else if name == "node" {
+    let local_node = join(@host.tool_root(), "node/node.exe")
+    if @fs.path_exists(local_node) &&
+      (@fs.is_file(local_node) catch { _ => false }) {
+      Some(local_node)
+    } else {
+      @host.resolve(name)
+    }
+  } else if name == "npm" {
+    let local_npm = join(@host.tool_root(), "node/npm.cmd")
+    if @fs.path_exists(local_npm) &&
+      (@fs.is_file(local_npm) catch { _ => false }) {
+      Some(local_npm)
+    } else {
+      @host.resolve(name)
+    }
+  } else if name == "moon" {
     let local_moon = join(@host.tool_root(), "moon/bin/moon.exe")
     if @fs.path_exists(local_moon) &&
       (@fs.is_file(local_moon) catch { _ => false }) {
@@ -99,6 +148,11 @@ fn resolve_alias(program : String) -> String? {
       @host.resolve(name)
     }
   } else if name == "python" {
+    let local_python = join(@host.tool_root(), "python/python.exe")
+    if @fs.path_exists(local_python) &&
+      (@fs.is_file(local_python) catch { _ => false }) {
+      return Some(local_python)
+    }
     for candidate in ["python", "python3", "py"] {
       if @host.resolve(candidate) is Some(path) {
         return Some(path)
@@ -119,6 +173,20 @@ fn classify_probe(found : Bool, code : Int, timed_out : Bool) -> String {
   } else {
     "ready"
   }
+}
+
+///|
+/// Windows may expose a Store execution alias or the Python launcher even
+/// when no Python runtime is installed. A failed probe there means the runtime
+/// is missing, not that RepoWayfinder may overwrite a broken Python install.
+fn python_placeholder_without_runtime(
+  executable : String,
+  code : Int,
+  timed_out : Bool,
+) -> Bool {
+  let path = executable.replace_all(old="/", new="\\").to_lower()
+  (code != 0 || timed_out) &&
+  (path.contains("\\microsoft\\windowsapps\\") || path.has_suffix("\\py.exe"))
 }
 
 ///|
@@ -217,6 +285,20 @@ async fn probe(program : String, cwd : String) -> Probe {
     }
   }
   let state = classify_probe(true, result.code, result.timed_out)
+  if name == "python" &&
+    python_placeholder_without_runtime(
+      executable,
+      result.code,
+      result.timed_out,
+    ) {
+    return {
+      name,
+      executable: Some(executable),
+      state: "missing",
+      detail: "Windows exposes a Python launcher/Store alias, but its runtime probe failed. The launcher is preserved; a separate application-local Python may be prepared.\n" +
+      result.output,
+    }
+  }
   if state != "ready" {
     return { name, executable: Some(executable), state, detail: result.output, }
   }
@@ -353,6 +435,49 @@ fn receipt_version(content : String) -> String? {
 }
 
 ///|
+fn receipt_kind(content : String) -> String? {
+  guard (@json.parse(content) catch { _ => Json::null() }) is Object(object) else {
+    return None
+  }
+  object_string(object, "kind")
+}
+
+///|
+fn receipt_package_id(content : String) -> String? {
+  guard (@json.parse(content) catch { _ => Json::null() }) is Object(object) else {
+    return None
+  }
+  object_string(object, "package_id")
+}
+
+///|
+/// Return the recorded installer digest only when every fixed Python receipt
+/// field and the digest-bearing package identity match exactly.
+fn python_receipt_digest(content : String) -> String? {
+  let prefix = "python.org/" +
+    python_direct_version +
+    "/" +
+    python_direct_filename +
+    "/sha256:"
+  guard receipt_package_id(content) is Some(package_id) &&
+    package_id.has_prefix(prefix) else {
+    return None
+  }
+  let digest = package_id[prefix.length():].to_lower().to_owned()
+  guard valid_sha256(digest) &&
+    receipt_matches(
+      content,
+      "python",
+      "python-org-local",
+      prefix + digest,
+      @host.tool_root(),
+    ) else {
+    return None
+  }
+  Some(digest)
+}
+
+///|
 async fn current_version(program : String, cwd : String) -> String? {
   guard resolve_alias(program) is Some(executable) else { return None }
   let args = if normalize(program) == "wsl" {
@@ -384,6 +509,258 @@ fn powershell_literal(value : String) -> String? {
     None
   } else {
     Some("'" + value.replace_all(old="'", new="''") + "'")
+  }
+}
+
+///|
+fn valid_sha256(value : String) -> Bool {
+  value.length() == 64 &&
+  value
+  .iter()
+  .all(c => {
+    (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+  })
+}
+
+///|
+fn trusted_node_version(value : String) -> Bool {
+  value.has_prefix("v") &&
+  value.length() >= 6 &&
+  value[1:].split(".").length() == 3 &&
+  value[1:].iter().all(c => (c >= '0' && c <= '9') || c == '.')
+}
+
+///|
+/// Select the first official LTS release that actually publishes a Windows
+/// x64 portable archive. nodejs.org orders index.json newest first.
+fn node_lts_archive(index_source : String) -> (String, String, String)? {
+  guard (@json.parse(index_source) catch { _ => Json::null() }) is Array(items) else {
+    return None
+  }
+  for item in items {
+    guard item is Object(object) &&
+      object_string(object, "version") is Some(version) &&
+      trusted_node_version(version) &&
+      object.get("lts") is Some(String(_)) &&
+      object.get("files") is Some(Array(files)) else {
+      continue
+    }
+    let has_windows_archive = files.any(value => {
+      match value {
+        String(name) => name == "win-x64-zip"
+        _ => false
+      }
+    })
+    if has_windows_archive {
+      let filename = "node-" + version + "-win-x64.zip"
+      return Some(
+        (
+          version,
+          filename,
+          "https://nodejs.org/dist/" + version + "/" + filename,
+        ),
+      )
+    }
+  }
+  None
+}
+
+///|
+fn checksum_for_file(source : String, filename : String) -> String? {
+  if filename.contains("/") || filename.contains("\\") {
+    return None
+  }
+  for line in source.replace_all(old="\r\n", new="\n").split("\n") {
+    let fields = line.trim().split("  ").collect()
+    if fields.length() == 2 && fields[1] == filename {
+      let digest = fields[0].to_lower().to_owned()
+      if valid_sha256(digest) {
+        return Some(digest)
+      }
+    }
+  }
+  None
+}
+
+///|
+/// Download an exact HTTPS URL without shell interpolation. The reviewed
+/// PowerShell body enforces both Content-Length (when supplied) and a streaming
+/// byte ceiling, writes a new .part file, then atomically promotes it.
+async fn download_bounded(
+  url : String,
+  destination : String,
+  minimum_bytes : Int64,
+  maximum_bytes : Int64,
+  cwd : String,
+) -> Bool {
+  guard url.has_prefix("https://") &&
+    minimum_bytes > 0L &&
+    maximum_bytes >= minimum_bytes else {
+    return false
+  }
+  guard @host.resolve("powershell") is Some(powershell) else {
+    println(
+      "WAITING_ENVIRONMENT: PowerShell is required for verified downloads.",
+    )
+    return false
+  }
+  if @fs.path_exists(destination) {
+    // Callers still verify an official checksum or publisher signature before
+    // use. Reuse is allowed only if the file still satisfies the same bounds.
+    let checked = @host.run(
+      powershell,
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "& { param($path,[int64]$minimum,[int64]$maximum) $ErrorActionPreference='Stop'; $length=(Get-Item -LiteralPath $path).Length; if ($length -lt $minimum -or $length -gt $maximum) { exit 3 } }",
+        destination,
+        minimum_bytes.to_string(),
+        maximum_bytes.to_string(),
+      ],
+      cwd,
+      15000,
+    )
+    return checked.code == 0 && !checked.timed_out
+  }
+  let partial = destination + ".part"
+  if @fs.path_exists(partial) {
+    println(
+      "WAITING_ENVIRONMENT: a prior bounded download is unresolved; preserving it instead of overwriting: " +
+      partial,
+    )
+    return false
+  }
+  let script =
+    #|& { param($url,$partial,$destination,[int64]$minimum,[int64]$maximum)
+    #|$ErrorActionPreference='Stop'
+    #|if (-not $url.StartsWith('https://',[StringComparison]::Ordinal)) { throw 'HTTPS required' }
+    #|$request=[Net.HttpWebRequest]::Create($url)
+    #|$request.AllowAutoRedirect=$true; $request.MaximumAutomaticRedirections=5
+    #|$request.UserAgent='RepoWayfinder-MB prerequisite bootstrap'
+    #|$response=$null; $input=$null; $output=$null
+    #|try {
+    #|  $response=$request.GetResponse()
+    #|  if ($response.ContentLength -gt $maximum) { throw 'Content-Length exceeds byte ceiling' }
+    #|  $input=$response.GetResponseStream()
+    #|  $output=[IO.File]::Open($partial,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    #|  $buffer=New-Object byte[] 65536; [int64]$total=0
+    #|  while (($read=$input.Read($buffer,0,$buffer.Length)) -gt 0) {
+    #|    $total += $read; if ($total -gt $maximum) { throw 'download exceeds byte ceiling' }
+    #|    $output.Write($buffer,0,$read)
+    #|  }
+    #|  if ($total -lt $minimum) { throw 'download is below byte floor' }
+    #|} finally {
+    #|  if ($output) { $output.Dispose() }; if ($input) { $input.Dispose() }; if ($response) { $response.Dispose() }
+    #|}
+    #|[IO.File]::Move($partial,$destination)
+    #|}
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      script,
+      url,
+      partial,
+      destination,
+      minimum_bytes.to_string(),
+      maximum_bytes.to_string(),
+    ],
+    cwd,
+    360000,
+  )
+  if result.code != 0 || result.timed_out || !@fs.path_exists(destination) {
+    println(
+      "WAITING_ENVIRONMENT: bounded official download failed; no installer/archive was executed.\n" +
+      result.output,
+    )
+    return false
+  }
+  true
+}
+
+///|
+async fn file_sha256(path : String, cwd : String) -> String? {
+  guard @host.resolve("powershell") is Some(powershell) else { return None }
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "& { param($path) $ErrorActionPreference='Stop'; (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant() }",
+      path,
+    ],
+    cwd,
+    30000,
+  )
+  let digest = result.output.trim().to_lower().to_owned()
+  if result.code == 0 && !result.timed_out && valid_sha256(digest) {
+    Some(digest)
+  } else {
+    None
+  }
+}
+
+///|
+async fn extract_portable_zip(
+  archive : String,
+  target : String,
+  expected_executable : String,
+  cwd : String,
+) -> Bool {
+  if @fs.path_exists(target) || @fs.path_exists(target + ".extracting") {
+    println(
+      "WAITING_ENVIRONMENT: portable target or preserved extraction state already exists; nothing was overwritten: " +
+      target,
+    )
+    return false
+  }
+  guard @host.resolve("powershell") is Some(powershell) else { return false }
+  let script =
+    #|& { param($archive,$target,$expected)
+    #|$ErrorActionPreference='Stop'
+    #|Add-Type -AssemblyName System.IO.Compression.FileSystem
+    #|$stage=$target+'.extracting'
+    #|$root=[IO.Path]::GetFullPath($stage+[IO.Path]::DirectorySeparatorChar)
+    #|$zip=[IO.Compression.ZipFile]::OpenRead($archive)
+    #|try {
+    #|  foreach ($entry in $zip.Entries) {
+    #|    if ([IO.Path]::IsPathRooted($entry.FullName)) { throw 'rooted zip entry rejected' }
+    #|    $candidate=[IO.Path]::GetFullPath((Join-Path $stage $entry.FullName))
+    #|    if (-not $candidate.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)) { throw 'zip path escape rejected' }
+    #|  }
+    #|} finally { $zip.Dispose() }
+    #|[IO.Compression.ZipFile]::ExtractToDirectory($archive,$stage)
+    #|$source=$stage
+    #|if (-not (Test-Path -LiteralPath (Join-Path $source $expected) -PathType Leaf)) {
+    #|  $items=@(Get-ChildItem -LiteralPath $stage -Force)
+    #|  if ($items.Count -ne 1 -or -not $items[0].PSIsContainer -or -not (Test-Path -LiteralPath (Join-Path $items[0].FullName $expected) -PathType Leaf)) { throw 'archive layout mismatch' }
+    #|  $source=$items[0].FullName
+    #|}
+    #|Move-Item -LiteralPath $source -Destination $target
+    #|if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage }
+    #|}
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script, archive, target,
+      expected_executable,
+    ],
+    cwd,
+    180000,
+  )
+  if result.code == 0 &&
+    !result.timed_out &&
+    @fs.path_exists(join(target, expected_executable)) {
+    true
+  } else {
+    println(
+      "WAITING_ENVIRONMENT: safe portable extraction failed. Partial state was preserved for inspection and will not be overwritten.\n" +
+      result.output,
+    )
+    false
   }
 }
 
@@ -658,6 +1035,297 @@ async fn install_local_npm(
 }
 
 ///|
+async fn windows_x64(cwd : String) -> Bool {
+  guard @host.resolve("powershell") is Some(powershell) else { return false }
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()",
+    ],
+    cwd,
+    15000,
+  )
+  result.code == 0 &&
+  !result.timed_out &&
+  result.output.trim().to_lower() == "x64"
+}
+
+///|
+async fn install_portable_git(cwd : String) -> Bool {
+  guard windows_x64(cwd) else {
+    println(
+      "WAITING_ENVIRONMENT: the reviewed MinGit fallback supports Windows x64 only. Install Git for Windows for this architecture from its official publisher.",
+    )
+    return false
+  }
+  guard ensure_tool_root() else { return false }
+  let archive = join(@host.tool_root(), mingit_filename)
+  let target = join(@host.tool_root(), "git")
+  if @fs.path_exists(target) {
+    println(
+      "WAITING_ENVIRONMENT: application-local Git target exists without a working executable. It is preserved as possibly partial or modified: " +
+      target,
+    )
+    return false
+  }
+  guard download_bounded(mingit_url, archive, 10000000L, 100000000L, cwd) else {
+    return false
+  }
+  guard file_sha256(archive, cwd) == Some(mingit_sha256) else {
+    println(
+      "WAITING_ENVIRONMENT: MinGit SHA-256 does not match the official Git for Windows release asset. The archive was not extracted: " +
+      archive,
+    )
+    return false
+  }
+  guard extract_portable_zip(archive, target, "cmd/git.exe", cwd) else {
+    return false
+  }
+  let checked = probe("git", cwd)
+  if checked.state != "ready" {
+    println(
+      "Application-local MinGit was extracted, but its version probe failed. No ownership receipt was written.\n" +
+      checked.detail,
+    )
+    return false
+  }
+  let recorded = write_receipt(
+    "git",
+    "portable-local",
+    "GitForWindows.MinGit/" + mingit_version + "/" + mingit_sha256,
+    checked.detail.trim().to_owned(),
+  )
+  if recorded {
+    @fs.remove_file(archive) catch {
+      _ => ()
+    }
+  }
+  recorded
+}
+
+///|
+async fn install_portable_node(cwd : String) -> Bool {
+  guard windows_x64(cwd) else {
+    println(
+      "WAITING_ENVIRONMENT: the official Node portable fallback supports Windows x64 only. Install a supported Node.js build for this architecture.",
+    )
+    return false
+  }
+  guard ensure_tool_root() else { return false }
+  let target = join(@host.tool_root(), "node")
+  if @fs.path_exists(target) {
+    println(
+      "WAITING_ENVIRONMENT: application-local Node target exists without working node/npm executables. It is preserved as possibly partial or modified: " +
+      target,
+    )
+    return false
+  }
+  let index_path = join(@host.tool_root(), "node-official-index.json")
+  guard download_bounded(node_index_url, index_path, 1000L, 5000000L, cwd) else {
+    return false
+  }
+  let index_source = @fs.read_file_to_string(index_path) catch {
+    _ => {
+      println("Downloaded official Node release index could not be read.")
+      return false
+    }
+  }
+  guard node_lts_archive(index_source) is Some((version, filename, url)) else {
+    println(
+      "WAITING_ENVIRONMENT: nodejs.org index has no structurally valid LTS Windows x64 portable archive; source drift was not guessed around.",
+    )
+    return false
+  }
+  let sums_url = "https://nodejs.org/dist/" + version + "/SHASUMS256.txt"
+  let sums_path = join(@host.tool_root(), "node-" + version + "-SHASUMS256.txt")
+  guard download_bounded(sums_url, sums_path, 100L, 5000000L, cwd) else {
+    return false
+  }
+  let sums = @fs.read_file_to_string(sums_path) catch {
+    _ => {
+      println("Downloaded official Node checksum manifest could not be read.")
+      return false
+    }
+  }
+  guard checksum_for_file(sums, filename) is Some(expected_sha256) else {
+    println(
+      "WAITING_ENVIRONMENT: official Node checksum manifest has no exact entry for " +
+      filename +
+      "; archive was not downloaded.",
+    )
+    return false
+  }
+  let archive = join(@host.tool_root(), filename)
+  guard download_bounded(url, archive, 10000000L, 250000000L, cwd) else {
+    return false
+  }
+  guard file_sha256(archive, cwd) == Some(expected_sha256) else {
+    println(
+      "WAITING_ENVIRONMENT: Node archive SHA-256 does not match the exact official SHASUMS256.txt entry. It was not extracted: " +
+      archive,
+    )
+    return false
+  }
+  guard extract_portable_zip(archive, target, "node.exe", cwd) else {
+    return false
+  }
+  let node_checked = probe("node", cwd)
+  let npm_checked = probe("npm", cwd)
+  if node_checked.state != "ready" || npm_checked.state != "ready" {
+    println(
+      "Application-local Node was extracted, but node and npm did not both pass version probes. No ownership receipt was written.\nnode: " +
+      node_checked.detail +
+      "\nnpm: " +
+      npm_checked.detail,
+    )
+    return false
+  }
+  let recorded = write_receipt(
+    "node",
+    "portable-local",
+    "Node.js/" + version + "/" + expected_sha256,
+    node_checked.detail.trim().to_owned(),
+  )
+  if recorded {
+    @fs.remove_file(archive) catch {
+      _ => ()
+    }
+  }
+  recorded
+}
+
+///|
+fn python_signature_valid(output : String) -> Bool {
+  let text = output.trim().to_lower()
+  text.has_prefix("valid|") && text.contains("python software foundation")
+}
+
+///|
+async fn verified_python_installer(path : String, cwd : String) -> Bool {
+  guard @host.resolve("powershell") is Some(powershell) else { return false }
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "& { param($path) $ErrorActionPreference='Stop'; $signature=Get-AuthenticodeSignature -LiteralPath $path; $signature.Status.ToString()+'|'+$signature.SignerCertificate.Subject }",
+      path,
+    ],
+    cwd,
+    30000,
+  )
+  result.code == 0 && !result.timed_out && python_signature_valid(result.output)
+}
+
+///|
+async fn install_local_python(cwd : String) -> Bool {
+  guard windows_x64(cwd) else {
+    println(
+      "WAITING_ENVIRONMENT: the reviewed python.org fallback is the Windows x64 installer only. Select an official installer for this architecture yourself.",
+    )
+    return false
+  }
+  guard ensure_tool_root() else { return false }
+  let target = join(@host.tool_root(), "python")
+  let executable = join(target, "python.exe")
+  let installer = join(@host.tool_root(), python_direct_filename)
+  if @fs.path_exists(target) {
+    println(
+      "WAITING_ENVIRONMENT: application-local Python target exists without a working executable. It is preserved as possibly partial or modified: " +
+      target,
+    )
+    return false
+  }
+  if @fs.path_exists(installer) {
+    println(
+      "WAITING_ENVIRONMENT: an unowned file already occupies the exact Python installer path. It will not be reused or overwritten: " +
+      installer,
+    )
+    return false
+  }
+  guard download_bounded(
+    python_direct_url, installer, 10000000L, 100000000L, cwd,
+  ) else {
+    return false
+  }
+  guard verified_python_installer(installer, cwd) else {
+    println(
+      "WAITING_ENVIRONMENT: the downloaded Python installer does not have a valid Python Software Foundation Authenticode signature. It was not executed: " +
+      installer,
+    )
+    return false
+  }
+  guard file_sha256(installer, cwd) is Some(installer_sha256) else {
+    println(
+      "WAITING_ENVIRONMENT: the signed Python installer SHA-256 could not be recorded, so it was not executed.",
+    )
+    return false
+  }
+  println(
+    "The exact signed python.org installer will run visibly in passive, current-user mode. It will not change PATH, install the launcher, request a restart, or auto-answer UAC. Any Windows/license prompt remains yours.",
+  )
+  let result = @host.run(
+    installer,
+    [
+      "/passive",
+      "/norestart",
+      "InstallAllUsers=0",
+      "TargetDir=" + target,
+      "PrependPath=0",
+      "Include_launcher=0",
+      "Include_pip=1",
+      "Include_tcltk=0",
+      "Include_test=0",
+      "SimpleInstall=1",
+    ],
+    cwd,
+    600000,
+  )
+  if result.code != 0 || result.timed_out || !@fs.path_exists(executable) {
+    println(
+      "WAITING_ENVIRONMENT: the official Python installer did not create the exact requested local runtime. No ownership receipt was written; installer and partial state are preserved for diagnosis.\n" +
+      result.output,
+    )
+    return false
+  }
+  let checked = probe("python", cwd)
+  if checked.state != "ready" ||
+    checked.detail.trim() != "Python " + python_direct_version {
+    println(
+      "Local Python exists, but its exact installed version did not pass verification. No ownership receipt was written.\n" +
+      checked.detail,
+    )
+    return false
+  }
+  write_receipt(
+    "python",
+    "python-org-local",
+    "python.org/" +
+    python_direct_version +
+    "/" +
+    python_direct_filename +
+    "/sha256:" +
+    installer_sha256,
+    checked.detail.trim().to_owned(),
+  )
+}
+
+///|
+async fn install_official_fallback(program : String, cwd : String) -> Bool {
+  match normalize(program) {
+    "git" => install_portable_git(cwd)
+    "node" => install_portable_node(cwd)
+    "python" => install_local_python(cwd)
+    _ => {
+      println(
+        "WAITING_ENVIRONMENT: no reviewed official no-winget fallback is implemented for " +
+        program +
+        ".",
+      )
+      false
+    }
+  }
+}
+
+///|
 async fn install_system(
   program : String,
   package_id : String,
@@ -670,8 +1338,16 @@ async fn install_system(
     return false
   }
   guard @host.resolve("winget") is Some(winget) else {
+    if normalize(program) == "git" ||
+      normalize(program) == "node" ||
+      normalize(program) == "python" {
+      println(
+        "winget is absent. Using the reviewed official application-local fallback; no system PATH, package-manager, service, auto-start, or machine setting will be changed.",
+      )
+      return install_official_fallback(program, cwd)
+    }
     println(
-      "WAITING_ENVIRONMENT: winget is unavailable. RepoWayfinder will not install or replace winget; install \{package_id} from its official publisher and retry.",
+      "WAITING_ENVIRONMENT: winget is unavailable and no safe official local fallback is implemented for \{package_id}. Install it from its official publisher and retry.",
     )
     return false
   }
@@ -997,7 +1673,17 @@ pub async fn ensure(
     (Some(package_name), _) =>
       "install npm package \{package_name} only under \{@host.tool_root()}"
     (_, Some(package_id)) =>
-      "ask winget for exact package \{package_id}; package licenses, UAC and restart decisions remain yours"
+      if @host.resolve("winget") is Some(_) {
+        "ask winget for exact package \{package_id}; package licenses, UAC and restart decisions remain yours"
+      } else if name == "git" {
+        "download the pinned official Git for Windows MinGit archive, verify its published SHA-256, and extract it only under \{@host.tool_root()}"
+      } else if name == "node" {
+        "select the newest official Node LTS Windows x64 portable archive, verify it against that release's SHASUMS256.txt, and extract it only under \{@host.tool_root()}"
+      } else if name == "python" {
+        "download the exact python.org 3.11.9 x64 installer, verify its Python Software Foundation signature, and visibly run a no-PATH current-user local install; license/UAC decisions remain yours"
+      } else {
+        "stop because winget is absent and no reviewed local fallback exists for \{package_id}"
+      }
     _ if name == "moon" =>
       "download, read and structurally verify the official MoonBit PowerShell installer, then install under \{@host.tool_root()}"
     _ => {
@@ -1184,6 +1870,65 @@ async fn uninstall_system(
 }
 
 ///|
+async fn uninstall_local_python(cwd : String) -> Json {
+  guard read_receipt("python") is Some(receipt) &&
+    python_receipt_digest(receipt) is Some(installer_sha256) else {
+    return Json({
+      "program": "python",
+      "state": "preserved",
+      "detail": "No exact RepoWayfinder python.org-local ownership receipt; pre-existing/shared Python was preserved.",
+    })
+  }
+  let target = join(@host.tool_root(), "python")
+  let executable = join(target, "python.exe")
+  let installer = join(@host.tool_root(), python_direct_filename)
+  guard current_version("python", cwd) is Some(version) &&
+    receipt_version(receipt) == Some(version) else {
+    return Json({
+      "program": "python",
+      "state": "preserved",
+      "detail": "Local Python version no longer matches the ownership receipt, or cannot be verified; possibly modified files were preserved.",
+    })
+  }
+  guard @fs.path_exists(installer) &&
+    verified_python_installer(installer, cwd) &&
+    file_sha256(installer, cwd) == Some(installer_sha256) else {
+    return Json({
+      "program": "python",
+      "state": "preserved",
+      "detail": "The retained exact-version python.org installer is absent or its Python Software Foundation signature is no longer valid. Runtime and receipt were preserved; no substitute uninstaller was guessed.",
+    })
+  }
+  let result = @host.run(
+    installer,
+    [
+      "/uninstall",
+      "/passive",
+      "/norestart",
+      "InstallAllUsers=0",
+      "TargetDir=" + target,
+    ],
+    cwd,
+    600000,
+  )
+  if result.code == 0 && !result.timed_out && !@fs.path_exists(executable) {
+    remove_receipt("python")
+    Json({
+      "program": "python",
+      "state": "removed",
+      "detail": "The exact signed python.org installer removed the owned runtime. Any non-runtime residual directory and the retained installer were preserved rather than recursively deleted.",
+    })
+  } else {
+    Json({
+      "program": "python",
+      "state": "preserved",
+      "detail": "The official Python uninstall failed, timed out, requested a restart, or left python.exe present. Runtime/installer/receipt were preserved for reconciliation; RepoWayfinder did not retry or delete the directory.\n" +
+      result.output,
+    })
+  }
+}
+
+///|
 pub async fn uninstall(confirmed : Bool) -> Json {
   if !confirmed {
     return Json::object({
@@ -1202,7 +1947,22 @@ pub async fn uninstall(confirmed : Bool) -> Json {
   }
   for name in ["git", "node", "python", "docker"] {
     guard system_package_id(name) is Some(package_id) else { continue }
-    results.push(uninstall_system(name, package_id, cwd))
+    if name == "python" &&
+      read_receipt("python") is Some(receipt) &&
+      python_receipt_digest(receipt) is Some(_) {
+      results.push(uninstall_local_python(cwd))
+    } else if read_receipt(name) is Some(receipt) &&
+      receipt_kind(receipt) == Some("portable-local") {
+      results.push(
+        Json({
+          "program": name,
+          "state": "preserved",
+          "detail": "RepoWayfinder owns this application-local portable runtime, but no per-file integrity manifest exists to prove that its directory is still unmodified. It and its receipt were conservatively preserved; no broad recursive deletion was attempted.",
+        }),
+      )
+    } else {
+      results.push(uninstall_system(name, package_id, cwd))
+    }
   }
   if read_receipt("moon") is Some(receipt) &&
     receipt_matches(

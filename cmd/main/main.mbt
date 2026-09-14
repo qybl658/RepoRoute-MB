@@ -39,6 +39,7 @@ fn print_help() -> Unit {
       #|  --install                                  允许询问缺失工具的安装
       #|  --health-url http://127.0.0.1:PORT/path      指定本地健康检查
       #|  --serve                                    保持前台运行
+      #|  --ai-plan --allow-send                      从 README 生成待审阅计划
       #|  --compatible                               放宽审查但保留高危拦截
       #|  --workspace PATH                           下载仓库的工作目录
       #|  --update                                   获取新版到新目录，保留旧版
@@ -46,6 +47,7 @@ fn print_help() -> Unit {
       #|doctor [--repair]                            检查环境（修复需单独确认）
       #|search QUERY                                搜索公开 GitHub 项目
       #|config PATH [--write-config]                 查看配置字段或生成缺失模板
+      #|config PATH --edit-config                   用系统窗口输入目标项目密钥
       #|ai-config [--endpoint URL --model NAME]      查看 AI 设置或安全配置密钥
       #|analyze PATH --allow-send                    发送有限仓库上下文给已配置 AI
       #|diagnose REPORT [--allow-send]               本地诊断，按需使用 AI
@@ -72,7 +74,8 @@ async fn entry() -> Unit {
   ]
   let option_flags = [
     "--execute", "--trust-project", "--install", "--serve", "--compatible", "--protected",
-    "--update", "--repair", "--confirm", "--allow-send", "--write-config", "--ai",
+    "--update", "--repair", "--confirm", "--allow-send", "--write-config", "--edit-config",
+    "--ai", "--ai-plan",
   ]
   if args.contains("--compatible") && args.contains("--protected") {
     raise @runtime.DeploymentError("Choose one deployment mode.")
@@ -134,6 +137,10 @@ async fn entry() -> Unit {
     return
   }
   if action == "config" {
+    if args.contains("--edit-config") {
+      println(@runtime.configure_interactive(target).stringify(indent=2))
+      return
+    }
     println(
       @runtime.configure_project(target, args.contains("--write-config")).stringify(
         indent=2,
@@ -239,6 +246,42 @@ async fn entry() -> Unit {
     return
   }
   let selected = value(args, "--candidate", "")
+  if args.contains("--ai-plan") {
+    let proposal = @advisor.propose_deployment_plan(
+      root,
+      value(args, "--question", "Run the documented project demo or service."),
+      args.contains("--allow-send"),
+    )
+    println(proposal.to_json().stringify(indent=2))
+    if !execute {
+      return
+    }
+    if !trust {
+      raise @runtime.DeploymentError(
+        "AI plan execution requires --trust-project.",
+      )
+    }
+    if !@host.prompt(
+        "是否执行上面展示的 README 计划？Python 将强制使用项目虚拟环境；系统环境准备仍逐项确认。",
+      ) {
+      return
+    }
+    let mode = @runtime.deployment_mode(
+      args.contains("--compatible"),
+      args.contains("--protected"),
+    )
+    finish(
+      @runtime.deploy_ai(
+        proposal,
+        true,
+        args.contains("--install"),
+        value(args, "--health-url", ""),
+        args.contains("--serve"),
+        mode,
+      ),
+    )
+    return
+  }
   let mut index : Int? = if selected.is_empty() {
     None
   } else {

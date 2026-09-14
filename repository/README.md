@@ -15,8 +15,8 @@ Public API:
   exclusive creation. Archive receipts explicitly set `git_metadata: false`;
   no history is fabricated.
 - `search(query)` calls the public GitHub repository search API through bounded
-  `curl` arguments without a token and returns the parsed JSON response. One
-  star-sorted result is requested so the host's bounded output remains intact.
+  `curl` arguments without a token and returns three compact results in GitHub
+  relevance order. Stars, language and update time are context, not deployment evidence.
 
 The package never persists Git configuration and rejects credential-bearing,
 HTTP, non-GitHub, private, or option-shaped URL inputs. Existing paths are never

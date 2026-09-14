@@ -3,16 +3,21 @@ package "qybl658/repowayfinder_mbt/advisor"
 
 import {
   "moonbitlang/core/debug",
+  "qybl658/repowayfinder_mbt",
 }
 
 // Values
 pub async fn analyze(String, String, Bool) -> Json
+
+pub async fn authorize_deployment_plan(@repowayfinder_mbt.AiDeploymentProposal, String, Bool) -> Array[@repowayfinder_mbt.DeploymentStep]
 
 pub async fn choose_candidate(String, String, Array[String], Bool) -> Int?
 
 pub async fn configure(String, String) -> Json
 
 pub fn get_settings() -> Json raise Failure
+
+pub async fn propose_deployment_plan(String, String, Bool) -> @repowayfinder_mbt.AiDeploymentProposal
 
 // Errors
 pub suberror Failure {

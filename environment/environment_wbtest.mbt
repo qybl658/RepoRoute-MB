@@ -4,6 +4,17 @@ test "probe classification distinguishes missing, broken and ready" {
   assert_eq(classify_probe(true, 1, false), "broken")
   assert_eq(classify_probe(true, 0, true), "broken")
   assert_eq(classify_probe(true, 0, false), "ready")
+  assert_true(
+    python_placeholder_without_runtime(
+      "C:\\Users\\demo\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe", 1, false,
+    ),
+  )
+  assert_true(
+    python_placeholder_without_runtime("C:\\Windows\\py.exe", 103, false),
+  )
+  assert_false(
+    python_placeholder_without_runtime("C:\\Python313\\python.exe", 1, false),
+  )
 }
 
 ///|
@@ -139,6 +150,95 @@ test "ownership receipts fail closed when owner or root changes" {
       "pnpm",
       "C:/app/.repowayfinder-tools",
     ),
+  )
+}
+
+///|
+test "official no-winget artifacts are exact and bounded by independent identity" {
+  assert_eq(
+    mingit_url, "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.2/MinGit-2.55.0.2-64-bit.zip",
+  )
+  assert_true(valid_sha256(mingit_sha256))
+  assert_false(valid_sha256(mingit_sha256 + "0"))
+  assert_eq(
+    python_direct_url, "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe",
+  )
+  assert_true(
+    python_signature_valid(
+      "Valid|CN=Python Software Foundation, O=Python Software Foundation, C=US",
+    ),
+  )
+  assert_false(
+    python_signature_valid("UnknownError|CN=Python Software Foundation"),
+  )
+  assert_false(python_signature_valid("Valid|CN=Unrelated Publisher"))
+}
+
+///|
+test "Node LTS selection requires an exact official portable file marker" {
+  let source =
+    #|[
+    #|  {"version":"v23.1.0","lts":false,"files":["win-x64-zip"]},
+    #|  {"version":"v22.22.0","lts":"Jod","files":["linux-x64","win-x64-zip"]}
+    #|]
+  assert_eq(
+    node_lts_archive(source),
+    Some(
+      (
+        "v22.22.0", "node-v22.22.0-win-x64.zip", "https://nodejs.org/dist/v22.22.0/node-v22.22.0-win-x64.zip",
+      ),
+    ),
+  )
+  assert_eq(
+    node_lts_archive(source.replace_all(old="win-x64-zip", new="win-arm64-zip")),
+    None,
+  )
+  assert_eq(
+    node_lts_archive(source.replace_all(old="v22.22.0", new="../../payload")),
+    None,
+  )
+}
+
+///|
+test "Node checksum matching is exact and rejects path-like names" {
+  let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  let manifest = digest + "  node-v22.22.0-win-x64.zip\n"
+  assert_eq(
+    checksum_for_file(manifest, "node-v22.22.0-win-x64.zip"),
+    Some(digest),
+  )
+  assert_eq(checksum_for_file(manifest, "node-v22.22.0-win-x64.msi"), None)
+  assert_eq(checksum_for_file(manifest, "../node-v22.22.0-win-x64.zip"), None)
+}
+
+///|
+test "python local receipt requires exact installer identity and owner root" {
+  let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  let valid = Json::object({
+    "schema": Json(1),
+    "owner": Json("RepoWayfinder-MB"),
+    "program": Json("python"),
+    "kind": Json("python-org-local"),
+    "package_id": Json(
+      "python.org/3.11.9/python-3.11.9-amd64.exe/sha256:" + digest,
+    ),
+    "tool_root": Json(@host.tool_root()),
+    "version": Json("Python 3.11.9"),
+  }).stringify()
+  assert_eq(receipt_kind(valid), Some("python-org-local"))
+  assert_eq(python_receipt_digest(valid), Some(digest))
+  assert_true(
+    receipt_matches(
+      valid,
+      "python",
+      "python-org-local",
+      "python.org/3.11.9/python-3.11.9-amd64.exe/sha256:" + digest,
+      @host.tool_root(),
+    ),
+  )
+  assert_eq(
+    python_receipt_digest(valid.replace_all(old=digest, new=digest + "0")),
+    None,
   )
 }
 

@@ -12,7 +12,8 @@ pub fn collect(root : String) -> Array[@lib.SourceFile] {
       "bun.lockb", "pyproject.toml", "requirements.txt", "Cargo.toml", "Cargo.lock",
       "moon.mod", "cmd/main/moon.pkg", "compose.yaml", "compose.yml", "docker-compose.yaml",
       "docker-compose.yml", "Dockerfile", "Procfile", "Procfile.windows", "main.py",
-      "app.py",
+      "app.py", "setup.py", "demo.py", "example.py", "examples/main.py", "examples/demo.py",
+      "examples/example.py", "demo/main.py",
     ] {
     let path = @host.join(root, name)
     if @fs.path_exists(path) && (@fs.is_file(path) catch { _ => false }) {
@@ -97,6 +98,7 @@ pub async fn deploy(
   serve : Bool,
   protected_mode : Bool,
   existing_report : String?,
+  approved_plan? : @lib.DeploymentPlan? = None,
 ) -> Json {
   if !@fs.path_exists(root) || !(@fs.is_dir(root) catch { _ => false }) {
     raise DeploymentError("Repository directory does not exist: " + root)
@@ -108,7 +110,7 @@ pub async fn deploy(
   }
   let files = collect(root)
   let contract = @lib.scan(root, files)
-  if contract.candidates.is_empty() && index is None {
+  if approved_plan is None && contract.candidates.is_empty() && index is None {
     let report_dir = @host.join(report_base(), @env.now().to_string())
     ensure_dir(report_dir)
     return save(
@@ -122,13 +124,29 @@ pub async fn deploy(
       health,
     )
   }
-  let plan = match
-    @lib.plan_deployment(contract, files, index, @host.windows()) {
-    Ok(plan) => plan
-    Err(message) => {
-      println(@lib.render_markdown(contract))
-      raise DeploymentError(message)
+  let plan = match approved_plan {
+    Some(plan) => plan
+    None =>
+      match @lib.plan_deployment(contract, files, index, @host.windows()) {
+        Ok(plan) => plan
+        Err(message) => {
+          println(@lib.render_markdown(contract))
+          raise DeploymentError(message)
+        }
+      }
+  }
+  let health = if health.is_empty() && plan.candidate.ecosystem == "docker" {
+    let ports = files
+      .filter(f => f.path == "Dockerfile")
+      .map(f => @lib.docker_exposed_ports(f.content))
+      .flatten()
+    if ports.is_empty() {
+      ""
+    } else {
+      "http://127.0.0.1:" + ports[0] + "/"
     }
+  } else {
+    health
   }
   if !execute {
     return plan.to_json()
@@ -562,15 +580,45 @@ pub async fn resume_deployment(
   let _ = parts.pop()
   let report_dir = parts.join("/")
   let files = collect(root)
-  let new_plan = match
-    @lib.plan_deployment(
-      @lib.scan(root, files),
-      files,
-      Some(index.to_int()),
-      @host.windows(),
-    ) {
-    Ok(plan) => plan.to_json()
-    Err(message) => raise DeploymentError(message)
+  let approved_plan = if index == -1 {
+    let original = @json.parse(
+      @fs.read_file_to_string(@host.join(report_dir, "ai-proposal.json")),
+    )
+    let mut readme = ""
+    for
+      name in [
+        "README.md", "README-en.md", "README.zh-CN.md", "README", "readme.md",
+      ] {
+      let file = @host.join(root, name)
+      if @fs.path_exists(file) {
+        readme += (@fs.read_file_to_string(file) catch { _ => "" }) + "\n"
+      }
+    }
+    let proposal = match
+      @lib.parse_ai_deployment_proposal(original, root, readme) {
+      Ok(proposal) => proposal
+      Err(message) =>
+        raise DeploymentError(
+          "Saved AI plan no longer matches README evidence: " + message,
+        )
+    }
+    Some(normalize_ai_plan(proposal, true))
+  } else {
+    None
+  }
+  let new_plan = match approved_plan {
+    Some(plan) => plan.to_json()
+    None =>
+      match
+        @lib.plan_deployment(
+          @lib.scan(root, files),
+          files,
+          Some(index.to_int()),
+          @host.windows(),
+        ) {
+        Ok(plan) => plan.to_json()
+        Err(message) => raise DeploymentError(message)
+      }
   }
   if new_plan != old_plan {
     raise DeploymentError(
@@ -597,5 +645,6 @@ pub async fn resume_deployment(
     serve,
     true,
     Some(report_dir),
+    approved_plan~,
   )
 }

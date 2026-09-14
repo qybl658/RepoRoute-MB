@@ -8,15 +8,21 @@ import {
 // Values
 pub fn collect(String) -> Array[@repowayfinder_mbt.SourceFile]
 
+pub async fn configure_interactive(String) -> Json
+
 pub fn configure_project(String, Bool) -> Json raise
 
-pub async fn deploy(String, Int?, Bool, Bool, Bool, String, Bool, Bool, String?) -> Json
+pub async fn deploy(String, Int?, Bool, Bool, Bool, String, Bool, Bool, String?, approved_plan? : @repowayfinder_mbt.DeploymentPlan?) -> Json
+
+pub async fn deploy_ai(@repowayfinder_mbt.AiDeploymentProposal, Bool, Bool, String, Bool, Bool) -> Json
 
 pub async fn deployment_mode(Bool, Bool) -> Bool
 
 pub fn diagnose(String) -> Json raise
 
 pub fn missing_known_python_package(String) -> String?
+
+pub fn normalize_ai_plan(@repowayfinder_mbt.AiDeploymentProposal, Bool) -> @repowayfinder_mbt.DeploymentPlan raise
 
 pub async fn probe(String, Array[String], String) -> Int
 

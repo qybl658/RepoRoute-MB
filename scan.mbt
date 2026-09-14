@@ -345,7 +345,11 @@ pub fn scan(root : String, files : Array[SourceFile]) -> RunContract {
     }
   }
   if !candidates.any(c => c.ecosystem == "python") {
-    for name in ["main.py", "app.py"] {
+    for
+      name in [
+        "main.py", "app.py", "demo.py", "example.py", "examples/main.py", "examples/demo.py",
+        "examples/example.py", "demo/main.py",
+      ] {
       if find_file(files, name) is Some(file) &&
         file.content.contains("__main__") {
         candidates.push({

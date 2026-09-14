@@ -575,7 +575,7 @@ pub async fn search(query : String) -> Json {
   let encoded = @percent.encode(clean)
   let url = "https://api.github.com/search/repositories?q=" +
     encoded +
-    "&sort=stars&order=desc&per_page=1"
+    "&per_page=3"
   guard @host.resolve("curl") is Some(curl) else {
     fail("curl is required for public GitHub search and is not available.")
   }
@@ -592,7 +592,30 @@ pub async fn search(query : String) -> Json {
   guard result.code == 0 && !result.timed_out else {
     fail("GitHub search failed. " + safe_detail(result.output))
   }
-  @json.parse(result.output) catch {
+  let parsed = @json.parse(result.output) catch {
     _ => fail("GitHub search returned invalid JSON.")
+  }
+  guard parsed is Object(fields) && fields.get("items") is Some(Array(items)) else {
+    fail("GitHub search omitted its repository list.")
+  }
+  let summaries : Array[Json] = []
+  for item in items {
+    guard item is Object(repo) else { continue }
+    let summary : Map[String, Json] = Map([])
+    for
+      key in [
+        "full_name", "html_url", "description", "language", "stargazers_count", "updated_at",
+        "archived",
+      ] {
+      if repo.get(key) is Some(value) {
+        summary[key] = value
+      }
+    }
+    summaries.push(Json::object(summary))
+  }
+  {
+    "query": clean,
+    "items": summaries,
+    "selection": "GitHub relevance order; metadata is not proof that a project runs.",
   }
 }

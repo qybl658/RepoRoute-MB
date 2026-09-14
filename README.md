@@ -42,6 +42,7 @@ moon run cmd/main -- diagnose <report-directory>/deployment.json
 # 环境检查、配置模板和仓库搜索
 moon run cmd/main -- doctor
 moon run cmd/main -- config C:\projects\demo --write-config
+moon run cmd/main -- config C:\projects\demo --edit-config
 moon run cmd/main -- search "moonbit"
 ```
 
@@ -64,6 +65,8 @@ Windows 报告目录还提供“准备好环境后点我继续”“查看诊断
 
 环境模块可复用既有工具；受支持的缺失工具通过精确系统包标识或应用本地安装处理。卸载只处理有有效安装记录、身份仍匹配的工具，不把预先安装的环境归为己有。
 
+Windows x64 没有 winget 时，可以使用官方 MinGit／Node 便携包，或签名验证后的 python.org 安装程序；下载需通过来源和完整性检查。便携 Git／Node 没有逐文件未修改证明时，卸载会保留目录并说明原因。`--edit-config` 只把你输入的值写入目标项目的配置文件（通常是明文），不会复制助手密钥，取消则保留原值。
+
 ## AI 辅助
 
 AI 是可选项，不配置也能走确定性部署。它可以解释 README、建议现有启动路线和辅助分析报告；模型输出不会直接交给 shell 执行。
@@ -73,10 +76,13 @@ moon run cmd/main -- ai-config
 moon run cmd/main -- ai-config --endpoint https://api.deepseek.com --model deepseek-chat
 moon run cmd/main -- analyze C:\projects\demo --allow-send
 moon run cmd/main -- deploy C:\projects\demo --ai --allow-send
+moon run cmd/main -- deploy C:\projects\demo --ai-plan --allow-send
 moon run cmd/main -- diagnose <report-directory>/deployment.json --allow-send
 ```
 
 Windows 配置使用系统凭据窗口和当前用户 DPAPI 加密。也可通过 `REPOWAYFINDER_AI_API_KEY`、`REPOWAYFINDER_AI_BASE_URL`、`REPOWAYFINDER_AI_MODEL` 配置。发送前需要 `--allow-send`；上下文仅取有限长度 README 与约定配置文件，不读取 `.env`。项目执行环境剔除助手的密钥和令牌。
+
+`--ai` 选择已发现候选；`--ai-plan` 可生成 README 明确记载的结构化步骤，默认只展示。加上 `--execute --trust-project` 后仍需审阅确认。执行器补齐环境检查，把 Python 绑定到项目虚拟环境；续跑使用保存的提案重新验证 README，不重新调用模型。工作目录目前限定为仓库根目录；容器仍使用标准 Docker／Compose 路线以保留权限检查与资源回收。
 
 ## 结果与边界
 

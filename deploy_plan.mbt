@@ -45,6 +45,46 @@ pub fn safe_entry_name(name : String) -> Bool {
 }
 
 ///|
+pub fn safe_relative_entry(name : String) -> Bool {
+  !name.is_empty() &&
+  name.split("/").all(part => safe_entry_name(part.to_owned()))
+}
+
+///|
+pub fn docker_exposed_ports(content : String) -> Array[String] {
+  let ports : Array[String] = []
+  for raw in content.split("\n") {
+    let line = raw.trim().to_owned()
+    if line.to_upper().has_prefix("FROM ") {
+      ports.clear()
+    }
+    if line.to_upper().has_prefix("EXPOSE ") {
+      for token in line[7:].split(" ") {
+        let token = token.trim().to_owned()
+        if token.has_prefix("#") {
+          break
+        }
+        let number = if token.has_suffix("/tcp") {
+          token[0:token.length() - 4].to_owned()
+        } else {
+          token
+        }
+        if !number.is_empty() && number.iter().all(c => c >= '0' && c <= '9') {
+          let port = @string.parse_int(number[:]) catch { _ => 0 }
+          if port > 0 &&
+            port <= 65535 &&
+            ports.length() < 8 &&
+            !ports.contains(port.to_string()) {
+            ports.push(port.to_string())
+          }
+        }
+      }
+    }
+  }
+  ports
+}
+
+///|
 pub fn safe_python_command(command : String) -> Array[String]? {
   if command
     .iter()
@@ -159,8 +199,13 @@ pub fn plan_deployment(
       steps.push({ phase: "start", program: manager, args: ["run", script], })
     }
     "python" | "python-file" | "python-command" => {
-      if candidate.ecosystem != "python-command" &&
-        !safe_entry_name(candidate.command) {
+      if (
+          candidate.ecosystem == "python" && !safe_entry_name(candidate.command)
+        ) ||
+        (
+          candidate.ecosystem == "python-file" &&
+          !safe_relative_entry(candidate.command)
+        ) {
         return Err(
           "Python entrypoint must be a simple executable name, without paths or shell syntax.",
         )
@@ -185,12 +230,16 @@ pub fn plan_deployment(
           args: ["-m", "pip", "install", "-r", "requirements.txt"],
         })
       }
-      if candidate.ecosystem == "python" {
+      if candidate.ecosystem == "python" ||
+        find_file(files, "pyproject.toml") is Some(_) ||
+        find_file(files, "setup.py") is Some(_) {
         steps.push({
           phase: "install",
           program: local_python,
           args: ["-m", "pip", "install", "."],
         })
+      }
+      if candidate.ecosystem == "python" {
         steps.push({
           phase: "start",
           program: bin + candidate.command + (if windows { ".exe" } else { "" }),
@@ -232,13 +281,16 @@ pub fn plan_deployment(
         program: "docker",
         args: ["build", "-t", "repowayfinder-mb-app", "."],
       })
-      steps.push({
-        phase: "start",
-        program: "docker",
-        args: ["run", "--rm", "repowayfinder-mb-app"],
-      })
+      let args = ["run", "--rm"]
+      if find_file(files, "Dockerfile") is Some(file) {
+        for port in docker_exposed_ports(file.content) {
+          args.append(["--publish", "127.0.0.1:" + port + ":" + port])
+        }
+      }
+      args.push("repowayfinder-mb-app")
+      steps.push({ phase: "start", program: "docker", args, })
       warnings.push(
-        "No port mapping is inferred. HTTP acceptance requires an explicit reachable health URL.",
+        "Only explicit EXPOSE TCP ports are bound to loopback. Occupied ports are not reclaimed; protocol readiness still requires verification.",
       )
     }
     "docker-compose" => {

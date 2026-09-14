@@ -6,7 +6,11 @@ import {
 }
 
 // Values
+pub fn docker_exposed_ports(String) -> Array[String]
+
 pub fn local_health_url(String) -> Bool
+
+pub fn parse_ai_deployment_proposal(Json, String, String) -> Result[AiDeploymentProposal, String]
 
 pub fn plan_deployment(RunContract, Array[SourceFile], Int?, Bool) -> Result[DeploymentPlan, String]
 
@@ -17,6 +21,8 @@ pub fn render_markdown(RunContract) -> String
 pub fn safe_entry_name(String) -> Bool
 
 pub fn safe_python_command(String) -> Array[String]?
+
+pub fn safe_relative_entry(String) -> Bool
 
 pub fn scan(String, Array[SourceFile]) -> RunContract
 
@@ -29,6 +35,18 @@ pub fn validate_compose(Json, Bool) -> Result[Bool, String]
 // Errors
 
 // Types and methods
+pub struct AiDeploymentProposal {
+  root : String
+  action : String
+  steps : Array[DeploymentStep]
+  review_steps : Array[Json]
+  reason : String
+  evidence : Array[String]
+}
+pub fn AiDeploymentProposal::authorize(Self, Bool) -> Result[Array[DeploymentStep], String]
+pub fn AiDeploymentProposal::deployment_root(Self) -> String
+pub fn AiDeploymentProposal::to_json(Self) -> Json
+
 pub(all) struct Candidate {
   ecosystem : String
   command : String
