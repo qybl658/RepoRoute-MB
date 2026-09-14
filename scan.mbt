@@ -62,13 +62,32 @@ fn evidence_after(
 }
 
 ///|
-fn package_manager(files : Array[SourceFile]) -> (String, String) {
-  if find_file(files, "pnpm-lock.yaml") is Some(_) {
+fn package_manager(
+  files : Array[SourceFile],
+  findings : Array[Finding],
+) -> (String, String) {
+  let has_pnpm = find_file(files, "pnpm-lock.yaml") is Some(_)
+  let has_yarn = find_file(files, "yarn.lock") is Some(_)
+  let has_bun = find_file(files, "bun.lock") is Some(_) ||
+    find_file(files, "bun.lockb") is Some(_)
+  let has_npm = find_file(files, "package-lock.json") is Some(_)
+  let manager_count = (if has_pnpm { 1 } else { 0 }) +
+    (if has_yarn { 1 } else { 0 }) +
+    (if has_bun { 1 } else { 0 }) +
+    (if has_npm { 1 } else { 0 })
+  if manager_count > 1 {
+    findings.push({
+      level: "warning",
+      code: "multiple-node-lockfiles",
+      message: "Multiple Node.js package managers are represented by lockfiles; deterministic precedence is pnpm, yarn, bun, then npm.",
+      file: ".",
+    })
+  }
+  if has_pnpm {
     ("pnpm", "pnpm")
-  } else if find_file(files, "yarn.lock") is Some(_) {
+  } else if has_yarn {
     ("yarn", "yarn")
-  } else if find_file(files, "bun.lock") is Some(_) ||
-    find_file(files, "bun.lockb") is Some(_) {
+  } else if has_bun {
     ("bun", "bun")
   } else {
     ("npm", "Node.js and npm")
@@ -103,7 +122,7 @@ fn add_node_candidates(
     })
     return
   }
-  let (manager, prerequisite) = package_manager(files)
+  let (manager, prerequisite) = package_manager(files, findings)
   let names = ["start", "dev", "serve"]
   for name in names {
     if scripts.get(name) is Some(String(script)) {

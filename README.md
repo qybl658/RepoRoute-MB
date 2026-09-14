@@ -10,7 +10,7 @@ Unfamiliar repositories often expose several plausible launch routes through pac
 
 | Ecosystem | Evidence | Candidate |
 |---|---|---|
-| Node.js | `package.json` scripts plus lockfile | `npm`, `pnpm`, `yarn`, or `bun` script |
+| Node.js | `package.json` scripts plus npm/pnpm/yarn/bun lockfile | matching package-manager script |
 | Python | `[project.scripts]` in `pyproject.toml` | installed console script |
 | Rust | `[package]` in `Cargo.toml` | `cargo run` |
 | MoonBit | `moon.mod` plus `cmd/main/moon.pkg` | `moon run cmd/main` |

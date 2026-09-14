@@ -84,3 +84,16 @@ test "node evidence points inside scripts with CRLF input" {
     "\"start\": \"node server.js\"",
   )
 }
+
+///|
+test "conflicting Node lockfiles are reported with stable precedence" {
+  let contract = @reporoute_mbt.scan("fixture/lock-conflict", [
+    @reporoute_mbt.source_file(
+      "package.json", "{\"scripts\": {\"start\": \"node index.js\"}}",
+    ),
+    @reporoute_mbt.source_file("package-lock.json", "{}"),
+    @reporoute_mbt.source_file("yarn.lock", ""),
+  ])
+  assert_eq(contract.candidates[0].command, "yarn start")
+  assert_eq(contract.findings[0].code, "multiple-node-lockfiles")
+}

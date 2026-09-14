@@ -11,9 +11,9 @@ fn join(root : String, relative : String) -> String {
 fn collect(root : String) -> Array[@lib.SourceFile] {
   let files : Array[@lib.SourceFile] = []
   let names = [
-    "package.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "pyproject.toml",
-    "Cargo.toml", "moon.mod", "cmd/main/moon.pkg", "compose.yaml", "docker-compose.yml",
-    "Dockerfile",
+    "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock",
+    "bun.lockb", "pyproject.toml", "Cargo.toml", "moon.mod", "cmd/main/moon.pkg",
+    "compose.yaml", "docker-compose.yml", "Dockerfile",
   ]
   for name in names {
     let path = join(root, name)
