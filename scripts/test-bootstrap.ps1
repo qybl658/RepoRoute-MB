@@ -86,7 +86,8 @@ exit /b 0
     if (-not (Test-Path -LiteralPath (Join-Path $sandbox 'run.md') -PathType Leaf)) {
         throw 'Bootstrap did not write the supported latest-run diagnostic.'
     }
-    $preservedRuns = @(Get-ChildItem -LiteralPath $sandbox -Filter 'run.previous.*.md' -File)
+    $preservedRuns = @(Get-ChildItem -LiteralPath (Join-Path $sandbox '.repowayfinder-reports/logs') -Filter '*.md' -File)
+    if (@(Get-ChildItem -LiteralPath $sandbox -Filter 'run.previous.*.md' -File).Count -ne 0) { throw 'Historical logs leaked into application root.' }
     if ($preservedRuns.Count -lt 1) {
         throw 'Bootstrap did not preserve the previous run.md before the next run.'
     }

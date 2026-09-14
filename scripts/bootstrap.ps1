@@ -105,9 +105,19 @@ trap {
 }
 
 if (Test-Path -LiteralPath $runLog -PathType Leaf) {
+    $logArchive = Join-Path $ProjectRoot '.repowayfinder-reports\logs'
+    New-Item -ItemType Directory -Path $logArchive -Force | Out-Null
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-    $previousRun = Join-Path $ProjectRoot "run.previous.$stamp.md"
+    $previousRun = Join-Path $logArchive ("run.$stamp." + [guid]::NewGuid().ToString('N') + '.md')
     Copy-Item -LiteralPath $runLog -Destination $previousRun
+}
+# Migrate only the old launcher's known log names, without deleting evidence.
+foreach ($legacyLog in Get-ChildItem -LiteralPath $ProjectRoot -Filter 'run.previous.*.md' -File) {
+    $logArchive = Join-Path $ProjectRoot '.repowayfinder-reports\logs'
+    New-Item -ItemType Directory -Path $logArchive -Force | Out-Null
+    $destination = Join-Path $logArchive $legacyLog.Name
+    if (Test-Path -LiteralPath $destination) { $destination = Join-Path $logArchive ($legacyLog.BaseName + '.' + [guid]::NewGuid().ToString('N') + '.md') }
+    Move-Item -LiteralPath $legacyLog.FullName -Destination $destination
 }
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $OutputEncoding = [Console]::OutputEncoding
