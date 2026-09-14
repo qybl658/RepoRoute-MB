@@ -13,7 +13,7 @@ fn collect(root : String) -> Array[@lib.SourceFile] {
   let names = [
     "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock",
     "bun.lockb", "pyproject.toml", "Cargo.toml", "moon.mod", "cmd/main/moon.pkg",
-    "compose.yaml", "docker-compose.yml", "Dockerfile",
+    "compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml", "Dockerfile",
   ]
   for name in names {
     let path = join(root, name)

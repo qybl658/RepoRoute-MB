@@ -97,3 +97,20 @@ test "conflicting Node lockfiles are reported with stable precedence" {
   assert_eq(contract.candidates[0].command, "yarn start")
   assert_eq(contract.findings[0].code, "multiple-node-lockfiles")
 }
+
+///|
+test "Compose variants use stable precedence and services evidence" {
+  let contract = @reporoute_mbt.scan("fixture/compose", [
+    @reporoute_mbt.source_file(
+      "compose.yml", "name: demo\n\nservices:\n  web:\n    image: nginx\n",
+    ),
+    @reporoute_mbt.source_file(
+      "docker-compose.yaml", "services:\n  worker:\n    image: busybox\n",
+    ),
+  ])
+  assert_eq(contract.candidates.length(), 1)
+  assert_eq(contract.candidates[0].ecosystem, "docker-compose")
+  assert_eq(contract.candidates[0].evidence.file, "compose.yml")
+  assert_eq(contract.candidates[0].evidence.line, 3)
+  assert_eq(contract.findings[0].code, "multiple-compose-files")
+}

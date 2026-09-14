@@ -215,10 +215,28 @@ fn add_python_candidates(
 fn add_container_candidates(
   files : Array[SourceFile],
   candidates : Array[Candidate],
+  findings : Array[Finding],
 ) -> Unit {
-  let compose = match find_file(files, "compose.yaml") {
-    Some(file) => Some(file)
-    None => find_file(files, "docker-compose.yml")
+  let compose_names = [
+    "compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml",
+  ]
+  let mut compose : SourceFile? = None
+  let mut compose_count = 0
+  for name in compose_names {
+    if find_file(files, name) is Some(file) {
+      compose_count = compose_count + 1
+      if compose is None {
+        compose = Some(file)
+      }
+    }
+  }
+  if compose_count > 1 {
+    findings.push({
+      level: "warning",
+      code: "multiple-compose-files",
+      message: "Multiple conventional Compose manifests were found; compose.yaml takes precedence, followed by compose.yml and docker-compose variants.",
+      file: ".",
+    })
   }
   if compose is Some(file) {
     candidates.push({
@@ -228,10 +246,10 @@ fn add_container_candidates(
       confidence: 90,
       prerequisites: ["Docker with Compose"],
       reason: "A conventional Compose manifest is present.",
-      evidence: {
-        file: file.path,
-        line: 1,
-        excerpt: line_excerpt(file.content, 1),
+      evidence: if file.content.contains("services:") {
+        evidence(file, "services:")
+      } else {
+        { file: file.path, line: 1, excerpt: line_excerpt(file.content, 1), }
       },
     })
   }
@@ -284,7 +302,7 @@ pub fn scan(root : String, files : Array[SourceFile]) -> RunContract {
       evidence: evidence(file, "name"),
     })
   }
-  add_container_candidates(files, candidates)
+  add_container_candidates(files, candidates, findings)
   if candidates.is_empty() {
     findings.push({
       level: "warning",
