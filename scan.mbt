@@ -301,7 +301,7 @@ fn add_container_candidates(
   }
   candidates.push({
     ecosystem: "docker",
-    command: "docker build -t reporoute-app . && docker run --rm reporoute-app",
+    command: "docker build -t repowayfinder-app . && docker run --rm repowayfinder-app",
     workdir: ".",
     confidence: if runtime_instruction.is_empty() {
       70

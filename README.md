@@ -1,10 +1,10 @@
-# RepoRoute MB
+# RepoWayfinder MB
 
-RepoRoute MB is a MoonBit library and CLI that discovers explicit repository launch entrypoints without executing project code. Every candidate includes its source file, line, prerequisite, reason, and confidence so humans and coding agents can distinguish evidence from guesses.
+RepoWayfinder MB is a MoonBit library and CLI that discovers explicit repository launch entrypoints without executing project code. Every candidate includes its source file, line, prerequisite, reason, and confidence so humans and coding agents can distinguish evidence from guesses.
 
 ## Why
 
-Unfamiliar repositories often expose several plausible launch routes through package scripts, language manifests, Dockerfiles, and Compose files. Returning one unexplained command hides conflicts and makes automated hand-off unsafe. RepoRoute MB emits a deterministic run contract and leaves goal/environment selection to its caller.
+Unfamiliar repositories often expose several plausible launch routes through package scripts, language manifests, Dockerfiles, and Compose files. Returning one unexplained command hides conflicts and makes automated hand-off unsafe. RepoWayfinder MB emits a deterministic run contract and leaves goal/environment selection to its caller.
 
 ## Supported evidence
 
@@ -57,7 +57,7 @@ The machine-readable output contract is documented by [schema/run-contract.schem
 
 ## Project status
 
-RepoRoute MB is under active development. Current work focuses on stable output contracts, broader reproducible fixtures, and evidence-backed compatibility checks. See [ROADMAP.md](ROADMAP.md).
+RepoWayfinder MB is under active development. Current work focuses on stable output contracts, broader reproducible fixtures, and evidence-backed compatibility checks. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

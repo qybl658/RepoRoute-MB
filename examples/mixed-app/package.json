@@ -1,5 +1,5 @@
 {
-  "name": "reporoute-mixed-example",
+  "name": "repowayfinder-mixed-example",
   "private": true,
   "scripts": {
     "start": "node server.js",

@@ -29,7 +29,7 @@ fn collect(root : String) -> Array[@lib.SourceFile] {
 fn print_help() -> Unit {
   println(
     (
-      #|RepoRoute MB - evidence-backed repository launch discovery
+      #|RepoWayfinder MB - evidence-backed repository launch discovery
       #|
       #|Usage:
       #|  moon run cmd/main -- [PATH] [--format json|markdown]

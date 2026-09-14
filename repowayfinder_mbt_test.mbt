@@ -1,10 +1,10 @@
 ///|
 test "node lockfile and scripts produce evidence-backed candidates" {
-  let contract = @reporoute_mbt.scan("fixture/node", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/node", [
+    @repowayfinder_mbt.source_file(
       "package.json", "{\n  \"scripts\": {\n    \"start\": \"node server.js\",\n    \"dev\": \"vite\"\n  }\n}",
     ),
-    @reporoute_mbt.source_file("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+    @repowayfinder_mbt.source_file("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
   ])
   assert_eq(contract.candidates.length(), 2)
   assert_eq(contract.candidates[0].command, "pnpm start")
@@ -14,8 +14,8 @@ test "node lockfile and scripts produce evidence-backed candidates" {
 
 ///|
 test "python project scripts are parsed without executing code" {
-  let contract = @reporoute_mbt.scan("fixture/python", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/python", [
+    @repowayfinder_mbt.source_file(
       "pyproject.toml", "[project]\nname = \"demo\"\n\n[project.scripts]\ndemo = \"demo.cli:main\"\n",
     ),
   ])
@@ -26,8 +26,8 @@ test "python project scripts are parsed without executing code" {
 
 ///|
 test "invalid package json is an honest error" {
-  let contract = @reporoute_mbt.scan("fixture/broken", [
-    @reporoute_mbt.source_file("package.json", "{ nope"),
+  let contract = @repowayfinder_mbt.scan("fixture/broken", [
+    @repowayfinder_mbt.source_file("package.json", "{ nope"),
   ])
   assert_eq(contract.candidates.length(), 0)
   assert_eq(contract.findings[0].code, "invalid-package-json")
@@ -36,9 +36,11 @@ test "invalid package json is an honest error" {
 
 ///|
 test "multiple ecosystems stay explicit instead of being silently ranked" {
-  let contract = @reporoute_mbt.scan("fixture/mixed", [
-    @reporoute_mbt.source_file("Cargo.toml", "[package]\nname = \"demo\"\n"),
-    @reporoute_mbt.source_file("Dockerfile", "FROM scratch\nCMD [\"/demo\"]\n"),
+  let contract = @repowayfinder_mbt.scan("fixture/mixed", [
+    @repowayfinder_mbt.source_file("Cargo.toml", "[package]\nname = \"demo\"\n"),
+    @repowayfinder_mbt.source_file(
+      "Dockerfile", "FROM scratch\nCMD [\"/demo\"]\n",
+    ),
   ])
   assert_eq(contract.candidates.length(), 2)
   assert_eq(contract.findings[0].code, "multiple-entrypoints")
@@ -46,24 +48,26 @@ test "multiple ecosystems stay explicit instead of being silently ranked" {
 
 ///|
 test "markdown includes command and exact evidence location" {
-  let contract = @reporoute_mbt.scan("fixture/moonbit", [
-    @reporoute_mbt.source_file("moon.mod", "name = \"demo/app\"\n"),
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/moonbit", [
+    @repowayfinder_mbt.source_file("moon.mod", "name = \"demo/app\"\n"),
+    @repowayfinder_mbt.source_file(
       "cmd/main/moon.pkg", "pkgtype(kind: \"executable\")\n",
     ),
   ])
-  let markdown = @reporoute_mbt.render_markdown(contract)
+  let markdown = @repowayfinder_mbt.render_markdown(contract)
   assert_true(markdown.contains("moon run cmd/main"))
   assert_true(markdown.contains("moon.mod:1"))
 }
 
 ///|
 test "Windows and explicitly relative paths are normalized" {
-  let contract = @reporoute_mbt.scan("fixture/windows", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/windows", [
+    @repowayfinder_mbt.source_file(
       ".\\package.json", "{\"scripts\": {\"start\": \"node index.js\"}}",
     ),
-    @reporoute_mbt.source_file(".\\pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+    @repowayfinder_mbt.source_file(
+      ".\\pnpm-lock.yaml", "lockfileVersion: '9.0'",
+    ),
   ])
   assert_eq(contract.candidates.length(), 1)
   assert_eq(contract.candidates[0].command, "pnpm start")
@@ -72,8 +76,8 @@ test "Windows and explicitly relative paths are normalized" {
 
 ///|
 test "node evidence points inside scripts with CRLF input" {
-  let contract = @reporoute_mbt.scan("fixture/evidence", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/evidence", [
+    @repowayfinder_mbt.source_file(
       "package.json", "{\r\n  \"start\": false,\r\n  \"scripts\": {\r\n    \"start\": \"node server.js\"\r\n  }\r\n}",
     ),
   ])
@@ -87,12 +91,12 @@ test "node evidence points inside scripts with CRLF input" {
 
 ///|
 test "conflicting Node lockfiles are reported with stable precedence" {
-  let contract = @reporoute_mbt.scan("fixture/lock-conflict", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/lock-conflict", [
+    @repowayfinder_mbt.source_file(
       "package.json", "{\"scripts\": {\"start\": \"node index.js\"}}",
     ),
-    @reporoute_mbt.source_file("package-lock.json", "{}"),
-    @reporoute_mbt.source_file("yarn.lock", ""),
+    @repowayfinder_mbt.source_file("package-lock.json", "{}"),
+    @repowayfinder_mbt.source_file("yarn.lock", ""),
   ])
   assert_eq(contract.candidates[0].command, "yarn start")
   assert_eq(contract.findings[0].code, "multiple-node-lockfiles")
@@ -100,11 +104,11 @@ test "conflicting Node lockfiles are reported with stable precedence" {
 
 ///|
 test "Compose variants use stable precedence and services evidence" {
-  let contract = @reporoute_mbt.scan("fixture/compose", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/compose", [
+    @repowayfinder_mbt.source_file(
       "compose.yml", "name: demo\n\nservices:\n  web:\n    image: nginx\n",
     ),
-    @reporoute_mbt.source_file(
+    @repowayfinder_mbt.source_file(
       "docker-compose.yaml", "services:\n  worker:\n    image: busybox\n",
     ),
   ])
@@ -117,8 +121,8 @@ test "Compose variants use stable precedence and services evidence" {
 
 ///|
 test "Dockerfile comments do not masquerade as runtime instructions" {
-  let contract = @reporoute_mbt.scan("fixture/docker", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/docker", [
+    @repowayfinder_mbt.source_file(
       "Dockerfile", "FROM alpine\n# CMD is intentionally omitted\nRUN echo ready\n",
     ),
   ])
@@ -129,8 +133,8 @@ test "Dockerfile comments do not masquerade as runtime instructions" {
 
 ///|
 test "Docker runtime evidence follows the first real instruction" {
-  let contract = @reporoute_mbt.scan("fixture/docker-entrypoint", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/docker-entrypoint", [
+    @repowayfinder_mbt.source_file(
       "Dockerfile", "FROM alpine\nRUN echo CMD\nENTRYPOINT [\"/app\"]\nCMD [\"serve\"]\n",
     ),
   ])
@@ -141,8 +145,8 @@ test "Docker runtime evidence follows the first real instruction" {
 
 ///|
 test "PEP 621 console and GUI scripts both produce clean commands" {
-  let contract = @reporoute_mbt.scan("fixture/python-scripts", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/python-scripts", [
+    @repowayfinder_mbt.source_file(
       "pyproject.toml", "[project.scripts]\n'route-cli' = 'demo.cli:main'\n\n[project]\nname = \"demo\"\n\n[project.gui-scripts]\n\"route-ui\" = \"demo.ui:main\"\n",
     ),
   ])
@@ -155,8 +159,8 @@ test "PEP 621 console and GUI scripts both produce clean commands" {
 
 ///|
 test "Node preview is runnable while empty scripts stay findings" {
-  let contract = @reporoute_mbt.scan("fixture/node-preview", [
-    @reporoute_mbt.source_file(
+  let contract = @repowayfinder_mbt.scan("fixture/node-preview", [
+    @repowayfinder_mbt.source_file(
       "package.json", "{\n  \"scripts\": {\n    \"start\": \"  \",\n    \"preview\": \"vite preview\"\n  }\n}",
     ),
   ])

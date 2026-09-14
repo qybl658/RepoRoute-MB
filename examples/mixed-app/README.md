@@ -1,6 +1,6 @@
 # Mixed fixture
 
-This fixture intentionally exposes two package scripts and one Docker route. RepoRoute MB must preserve all three candidates and report the conflict instead of silently selecting one.
+This fixture intentionally exposes two package scripts and one Docker route. RepoWayfinder MB must preserve all three candidates and report the conflict instead of silently selecting one.
 
 Run from the repository root:
 

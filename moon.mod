@@ -9,13 +9,13 @@
 //   "moonbitlang/x@0.4.6",
 // }
 
-name = "qybl658/reporoute_mbt"
+name = "qybl658/repowayfinder_mbt"
 
 version = "0.1.0"
 
 readme = "README.md"
 
-repository = "https://github.com/qybl658/RepoRoute-MB"
+repository = "https://github.com/qybl658/RepoWayfinder-MB"
 
 license = "Apache-2.0"
 
