@@ -123,27 +123,38 @@ fn add_node_candidates(
     return
   }
   let (manager, prerequisite) = package_manager(files, findings)
-  let names = ["start", "dev", "serve"]
+  let names = ["start", "dev", "serve", "preview"]
   for name in names {
     if scripts.get(name) is Some(String(script)) {
-      let command = if manager == "npm" {
-        "npm run \{name}"
+      if script.trim(chars=" \t\r\n").is_empty() {
+        findings.push({
+          level: "warning",
+          code: "empty-node-script",
+          message: "package.json script '\{name}' is empty and was not emitted as a launch candidate.",
+          file: file.path,
+        })
       } else {
-        "\{manager} \{name}"
-      }
-      candidates.push({
-        ecosystem: "node",
-        command,
-        workdir: ".",
-        confidence: if name == "start" {
-          95
+        let command = if manager == "npm" {
+          "npm run \{name}"
         } else {
-          85
-        },
-        prerequisites: [prerequisite],
-        reason: "Explicit package.json script '\{name}' (\{script})",
-        evidence: evidence_after(file, "\"scripts\"", "\"\{name}\""),
-      })
+          "\{manager} \{name}"
+        }
+        candidates.push({
+          ecosystem: "node",
+          command,
+          workdir: ".",
+          confidence: if name == "start" {
+            95
+          } else if name == "preview" {
+            75
+          } else {
+            85
+          },
+          prerequisites: [prerequisite],
+          reason: "Explicit package.json script '\{name}' (\{script})",
+          evidence: evidence_after(file, "\"scripts\"", "\"\{name}\""),
+        })
+      }
     }
   }
 }

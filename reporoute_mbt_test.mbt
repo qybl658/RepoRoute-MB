@@ -152,3 +152,16 @@ test "PEP 621 console and GUI scripts both produce clean commands" {
   assert_true(contract.candidates[1].reason.contains("GUI"))
   assert_eq(contract.candidates[1].evidence.line, 8)
 }
+
+///|
+test "Node preview is runnable while empty scripts stay findings" {
+  let contract = @reporoute_mbt.scan("fixture/node-preview", [
+    @reporoute_mbt.source_file(
+      "package.json", "{\n  \"scripts\": {\n    \"start\": \"  \",\n    \"preview\": \"vite preview\"\n  }\n}",
+    ),
+  ])
+  assert_eq(contract.candidates.length(), 1)
+  assert_eq(contract.candidates[0].command, "npm run preview")
+  assert_eq(contract.candidates[0].confidence, 75)
+  assert_eq(contract.findings[0].code, "empty-node-script")
+}
