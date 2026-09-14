@@ -189,14 +189,28 @@ if ($null -ne $CliArgs -and $CliArgs.Count -gt 0) {
 }
 
 Push-Location $ProjectRoot
+$previousProgress = $env:REPOWAYFINDER_PROGRESS
+$env:REPOWAYFINDER_PROGRESS = '1'
+$progressVisible = $false
 try {
     & $executable @effectiveArgs 2>&1 | ForEach-Object {
         $line = $_.ToString()
+        if ($progressVisible) {
+            [Console]::Write("`r" + (' ' * 100) + "`r")
+            $progressVisible = $false
+        }
+        if ($line.StartsWith('__RWF_WAIT__')) {
+            [Console]::Write($line.Substring(12))
+            $progressVisible = $true
+            return
+        }
+        if ($line -eq '__RWF_WAIT_END__') { return }
         Add-Content -LiteralPath $runLog -Value $line -Encoding UTF8
         [Console]::WriteLine($line)
     }
     $cliExitCode = $LASTEXITCODE
 } finally {
+    $env:REPOWAYFINDER_PROGRESS = $previousProgress
     Pop-Location
 }
 Stop-RunTranscript

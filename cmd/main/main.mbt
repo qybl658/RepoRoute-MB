@@ -194,7 +194,7 @@ async fn entry() -> Unit {
   let mut interactive = false
   if action.is_empty() {
     println(
-      "RepoWayfinder MB\n输入 GitHub 仓库地址或本地项目目录（空行退出）：",
+      "RepoWayfinder MB\n输入关键词（例如 AI Agent）、GitHub 仓库地址或本地项目目录（空行退出）：",
     )
     let input = @stdio.stdin.read_until("\n")
     guard input is Some(input) && !input.trim().is_empty() else { return }

@@ -315,6 +315,31 @@ pub async fn run(
     let (reader, writer) = @process.read_from_process()
     @async.with_task_group() <| group => {
       defer reader.close()
+      let waiting = group.spawn(() => {
+        if @env.get_env_var("REPOWAYFINDER_PROGRESS") == Some("1") {
+          let mut seconds = 0
+          while true {
+            @async.sleep(1000)
+            seconds = seconds + 1
+            if seconds >= 2 {
+              println(
+                "__RWF_WAIT__" +
+                program +
+                "：正在处理，已等待 " +
+                seconds.to_string() +
+                " 秒" +
+                [".", "..", "..."][seconds % 3],
+              )
+            }
+          }
+        }
+      })
+      defer {
+        waiting.cancel()
+        if @env.get_env_var("REPOWAYFINDER_PROGRESS") == Some("1") {
+          println("__RWF_WAIT_END__")
+        }
+      }
       let child = group.spawn(() => {
         @process.run(
           exe[:],
