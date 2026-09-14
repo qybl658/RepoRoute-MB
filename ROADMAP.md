@@ -9,7 +9,8 @@
 
 ## Milestone 2 — reproducible compatibility fixtures
 
-- [ ] Add versioned fixtures for path, CRLF, missing-field, and conflict boundaries.
+- [x] Add a versioned mixed-project conflict fixture and public JSON Schema.
+- [ ] Add path, CRLF, and missing-field fixtures.
 - [ ] Freeze two public repository commits and expected contracts.
 - [ ] Add Linux and Windows CI smoke runs.
 

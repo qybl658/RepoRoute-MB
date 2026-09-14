@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/qybl658/RepoRoute-MB/blob/main/schema/run-contract.schema.json",
+  "title": "RepoRoute MB run contract",
+  "type": "object",
+  "required": ["schema_version", "root", "candidates", "findings"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "root": {"type": "string"},
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ecosystem", "command", "workdir", "confidence", "prerequisites", "reason", "evidence"],
+        "properties": {
+          "ecosystem": {"type": "string"},
+          "command": {"type": "string"},
+          "workdir": {"type": "string"},
+          "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+          "prerequisites": {"type": "array", "items": {"type": "string"}},
+          "reason": {"type": "string"},
+          "evidence": {
+            "type": "object",
+            "required": ["file", "line", "excerpt"],
+            "properties": {
+              "file": {"type": "string"},
+              "line": {"type": "integer", "minimum": 1},
+              "excerpt": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["level", "code", "message", "file"],
+        "properties": {
+          "level": {"enum": ["info", "warning", "error"]},
+          "code": {"type": "string"},
+          "message": {"type": "string"},
+          "file": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

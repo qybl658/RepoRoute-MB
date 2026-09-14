@@ -44,9 +44,17 @@ moon run cmd/main -- .
 
 Tests cover lockfile selection, source line evidence, PEP 621 scripts, invalid JSON, mixed ecosystems, Markdown output, and empty repositories.
 
+For a reproducible mixed-project demonstration:
+
+```powershell
+moon run cmd/main -- examples/mixed-app
+```
+
+The machine-readable output contract is documented by [schema/run-contract.schema.json](schema/run-contract.schema.json). A concise product overview is available in [docs/overview.md](docs/overview.md).
+
 ## Project status
 
-RepoRoute MB is under active development. Current work focuses on stable output contracts, broader reproducible fixtures, and evidence-backed compatibility checks.
+RepoRoute MB is under active development. Current work focuses on stable output contracts, broader reproducible fixtures, and evidence-backed compatibility checks. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 
