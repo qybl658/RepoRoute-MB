@@ -1,22 +1,21 @@
-# Product roadmap
+# 功能与验收进度
 
-## Milestone 1 — auditable core
+当前重点是把仓库分析、环境准备、实际执行和诊断连成可复现流程，而不只返回启动命令。
 
-- [x] Typed source, candidate, evidence, finding, and run-contract models.
-- [x] Node.js, Python, Rust, MoonBit, Docker, and Compose discovery.
-- [x] Deterministic JSON and Markdown renderers.
-- [x] Unit tests for normal, conflicting, malformed, and empty inputs.
+- [x] 多语言启动入口与来源证据、结构化部署计划。
+- [x] 项目依赖准备、Python 虚拟环境和构建启动。
+- [x] 环境缺失与已安装但不可用状态分离、确认后安装及所有权记录。
+- [x] Windows 中文启动入口、路径修复入口、独立原生程序优先。
+- [x] 持久报告、续跑时重新核对计划、保留旧配置和日志。
+- [x] 本地 HTTP 验证、任务进程及容器回收、明确失败状态。
+- [x] 可选 AI 上下文分析、候选选择和当前用户加密密钥存储。
+- [x] 公开仓库搜索和 Git 优先获取。
+- [x] 官方 ZIP 安全回退、版本检查与非覆盖更新。
+- [x] 中文报告续跑／诊断／更新入口，无入口项目阅读模式。
+- [x] 有界网络重试、已知 Python 缺包确认后修复。
+- [ ] 新机系统安装、UAC、许可证、重启及真实卸载验收。
+- [ ] 使用实际模型账户完成端到端分析验收。
+- [ ] 更广的真实仓库兼容矩阵，包括复杂 monorepo 和非标准 README 路线。
+- [ ] 依赖镜像回退、报告局部 Dockerfile 修复和跨重启环境恢复。
 
-## Milestone 2 — reproducible compatibility fixtures
-
-- [x] Add a versioned mixed-project conflict fixture and public JSON Schema.
-- [x] Add path, CRLF, and missing-field fixtures.
-- [ ] Freeze two public repository commits and expected contracts.
-- [x] Add Linux and Windows CI smoke runs.
-
-## Milestone 3 — stable release
-
-- [ ] Stabilize JSON Schema and document compatibility policy.
-- [ ] Record benchmark and coverage evidence.
-- [ ] Publish concise usage examples and a reproducible demo.
-- [ ] Freeze a versioned release candidate with checksums.
+勾选功能表示代码已实现，并不替代最后几项实际环境验收。不要把单元测试或可控示例的通过描述成对任意仓库的保证。

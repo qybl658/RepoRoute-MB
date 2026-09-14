@@ -46,3 +46,16 @@ jobs:
 
       - name: Smoke test CLI
         run: moon run cmd/main -- examples/mixed-app --format markdown
+
+      - name: Verify Windows bootstrap
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-bootstrap.ps1
+
+      - name: Build native executable
+        run: moon build --target native --deny-warn
+
+      - name: Verify real Windows deployment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-deployment.ps1
