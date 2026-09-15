@@ -166,6 +166,81 @@ fn safe_detail(value : String) -> String {
 }
 
 ///|
+fn retryable_git_transport_failure(output : String, timed_out : Bool) -> Bool {
+  if timed_out {
+    return true
+  }
+  let lower = output.to_lower()
+  [
+    "early eof", "connection was reset", "recv failure", "failed to connect", "connection timed out",
+    "the remote end hung up", "rpc failed", "http/2 stream", "gnutls recv error",
+    "schannel", "ssl certificate problem", "unable to access", "could not resolve host",
+  ].any(marker => lower.contains(marker[:]))
+}
+
+///|
+fn gitclone_mirror_url(owner : String, name : String) -> String? {
+  guard valid_atom(owner) && valid_atom(name) else { return None }
+  Some("https://gitclone.com/github.com/" + owner + "/" + name + ".git")
+}
+
+///|
+fn anonymous_mirror_git_args(
+  owner : String,
+  name : String,
+  branch : String,
+  destination : String,
+) -> Array[String]? {
+  guard gitclone_mirror_url(owner, name) is Some(mirror) &&
+    !branch.is_empty() &&
+    branch.length() <= 255 else {
+    return None
+  }
+  Some([
+    "-c", "core.longpaths=true", "-c", "credential.helper=", "-c", "credential.interactive=never",
+    "-c", "core.askPass=", "-c", "http.version=HTTP/1.1", "clone", "--depth", "1",
+    "--single-branch", "--branch", branch, "--", mirror, destination,
+  ])
+}
+
+///|
+fn mirror_credential_environment_is_clear() -> Bool {
+  // GIT_ASKPASS overrides core.askPass, so fail closed instead of allowing an
+  // ambient credential program to answer a third-party mirror challenge.
+  for key, value in @env.get_env_vars() {
+    let upper = key.to_upper()
+    if (upper == "GIT_ASKPASS" || upper == "SSH_ASKPASS") &&
+      !value.trim().is_empty() {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn verified_mirror_revision(
+  output : String,
+  official_revision : String,
+) -> String? {
+  let mirror_revision = output.trim(chars=" \t\r\n").to_owned().to_lower()
+  if valid_sha(mirror_revision) && mirror_revision == official_revision {
+    Some(mirror_revision)
+  } else {
+    None
+  }
+}
+
+///|
+fn official_origin_was_restored(
+  code : Int,
+  timed_out : Bool,
+  output : String,
+  official_url : String,
+) -> Bool {
+  code == 0 && !timed_out && output.trim(chars=" \t\r\n") == official_url
+}
+
+///|
 async fn unique_destination(
   workspace : String,
   owner : String,
@@ -233,17 +308,30 @@ async fn prepare_workspace(workspace : String) -> String {
 }
 
 ///|
+fn github_api_curl_args(url : String) -> Array[String] {
+  [
+    "--disable", "--fail-with-body", "--silent", "--show-error", "--location", "--max-time",
+    "20", "--header", "Accept: application/vnd.github+json", "--header", "User-Agent: RepoWayfinder-MB/0.1",
+    "--header", "X-GitHub-Api-Version: 2022-11-28", "--", url,
+  ]
+}
+
+///|
+fn github_archive_curl_args(url : String, zip_path : String) -> Array[String] {
+  [
+    "--disable", "--fail", "--silent", "--show-error", "--location", "--max-time",
+    "120", "--max-filesize", "104857600", "--output", zip_path, "--", url,
+  ]
+}
+
+///|
 async fn github_json(url : String, label : String) -> Json {
   guard @host.resolve("curl") is Some(curl) else {
     fail("执行" + label + "需要 curl，但当前环境中未找到。")
   }
   let result = @host.run(
     curl,
-    [
-      "--fail-with-body", "--silent", "--show-error", "--location", "--max-time",
-      "20", "--header", "Accept: application/vnd.github+json", "--header", "User-Agent: RepoWayfinder-MB/0.1",
-      "--header", "X-GitHub-Api-Version: 2022-11-28", "--", url,
-    ],
+    github_api_curl_args(url),
     @host.app_root(),
     25000,
   )
@@ -387,10 +475,7 @@ async fn github_archive_fallback(
     revision
   let downloaded = @host.run(
     curl,
-    [
-      "--fail", "--silent", "--show-error", "--location", "--max-time", "120", "--max-filesize",
-      "104857600", "--output", zip_path, "--", url,
-    ],
+    github_archive_curl_args(url, zip_path),
     workspace,
     130000,
   )
@@ -430,6 +515,127 @@ async fn github_archive_fallback(
 }
 
 ///|
+async fn try_verified_gitclone_checkout(
+  git : String,
+  owner : String,
+  name : String,
+  workspace : String,
+  update : Bool,
+  failures : Array[String],
+) -> String? {
+  guard mirror_credential_environment_is_clear() else {
+    failures.push(
+      "GitClone 镜像已跳过：当前环境设置了 askpass，无法保证匿名访问。",
+    )
+    return None
+  }
+  let official = Some(github_default_revision(owner, name)) catch {
+    Failure(message) => {
+      failures.push(
+        "GitClone 镜像已跳过：无法匿名取得 GitHub 官方提交号。" +
+        message,
+      )
+      None
+    }
+    error => {
+      failures.push(
+        "GitClone 镜像已跳过：GitHub 官方提交查询异常。" +
+        safe_detail("\{error}"),
+      )
+      None
+    }
+  }
+  guard official is Some((branch, official_revision)) else { return None }
+  let destination = unique_destination(workspace, owner, name)
+  guard anonymous_mirror_git_args(owner, name, branch, destination)
+    is Some(args) &&
+    gitclone_mirror_url(owner, name) is Some(mirror_url) else {
+    failures.push(
+      "GitClone 镜像已跳过：仓库或默认分支信息无效。",
+    )
+    return None
+  }
+  println(
+    "GitHub 直连遇到网络错误；尝试一次不携带凭据的 GitClone 公开缓存，并用 GitHub 官方提交号校验。",
+  )
+  let cloned = @host.run(git, args, workspace, 120000, isolated_git=true)
+  if cloned.code != 0 ||
+    cloned.timed_out ||
+    !@fs.exists(@host.join(destination, ".git")[:]) {
+    failures.push(destination + " [GitClone]：" + safe_detail(cloned.output))
+    // A partial checkout remains in this unique task workspace for diagnosis.
+    return None
+  }
+  let head_result = @host.run(
+    git,
+    ["-C", destination, "rev-parse", "HEAD"],
+    workspace,
+    20000,
+    isolated_git=true,
+  )
+  let mirror_revision = head_result.output
+    .trim(chars=" \t\r\n")
+    .to_owned()
+    .to_lower()
+  if head_result.code != 0 ||
+    head_result.timed_out ||
+    verified_mirror_revision(head_result.output, official_revision) is None {
+    failures.push(
+      destination +
+      " [GitClone]：镜像 HEAD 与 GitHub 官方提交号不完全一致；镜像=" +
+      (if mirror_revision.is_empty() { "unknown" } else { mirror_revision }) +
+      "，官方=" +
+      official_revision,
+    )
+    return None
+  }
+  let official_url = "https://github.com/" + owner + "/" + name + ".git"
+  let restored = @host.run(
+    git,
+    ["-C", destination, "remote", "set-url", "origin", official_url],
+    workspace,
+    20000,
+    isolated_git=true,
+  )
+  let origin = @host.run(
+    git,
+    ["-C", destination, "remote", "get-url", "origin"],
+    workspace,
+    20000,
+    isolated_git=true,
+  )
+  if restored.code != 0 ||
+    restored.timed_out ||
+    !official_origin_was_restored(
+      origin.code,
+      origin.timed_out,
+      origin.output,
+      official_url,
+    ) {
+    failures.push(
+      destination +
+      " [GitClone]：提交已匹配，但 origin 未能恢复为 GitHub 官方地址。",
+    )
+    return None
+  }
+  write_receipt(destination, {
+    "schema_version": 1,
+    "source": "gitclone_mirror_verified",
+    "checkout": destination,
+    "origin": official_url,
+    "retrieval_url": mirror_url,
+    "default_branch": branch,
+    "revision": official_revision,
+    "git_metadata": true,
+    "update_requested": update,
+  })
+  println(
+    "GitClone 缓存已通过 GitHub 官方提交校验，origin 已恢复为 GitHub。",
+  )
+  Some(destination)
+}
+
+///|
 async fn acquire_github(
   owner : String,
   name : String,
@@ -448,6 +654,7 @@ async fn acquire_github(
   let failures : Array[String] = []
   let mut destination = ""
   let mut cloned_ok = false
+  let mut mirror_attempted = false
   for extra in variants {
     destination = unique_destination(workspace_real, owner, name)
     let args = ["-c", "core.longpaths=true"]
@@ -466,6 +673,16 @@ async fn acquire_github(
       break
     }
     failures.push(destination + ": " + safe_detail(cloned.output))
+    if !mirror_attempted &&
+      retryable_git_transport_failure(cloned.output, cloned.timed_out) {
+      mirror_attempted = true
+      if try_verified_gitclone_checkout(
+          git, owner, name, workspace_real, update, failures,
+        )
+        is Some(mirror_checkout) {
+        return mirror_checkout
+      }
+    }
   }
   if !cloned_ok {
     return github_archive_fallback(
@@ -652,11 +869,7 @@ pub async fn search(query : String) -> Json {
   }
   let result = @host.run(
     curl,
-    [
-      "--fail-with-body", "--silent", "--show-error", "--location", "--max-time",
-      "20", "--header", "Accept: application/vnd.github+json", "--header", "User-Agent: RepoWayfinder-MB/0.1",
-      "--header", "X-GitHub-Api-Version: 2022-11-28", "--", url,
-    ],
+    github_api_curl_args(url),
     @host.app_root(),
     25000,
   )

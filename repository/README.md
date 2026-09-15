@@ -8,7 +8,15 @@ Public API:
   an unchanged checkout is reused read-only, while a changed one is acquired in
   a new workspace directory with all existing edits preserved.
 - Remote acquisition starts with a shallow Git clone and one bounded HTTP/1.1
-  compatibility retry. If both fail, the package resolves the immutable default
+  compatibility retry. After the first explicit transport failure, a public
+  repository may use GitClone once, with credential helpers, interaction and
+  askpass disabled and user/global Git configuration excluded for the process.
+  Public GitHub API, archive and search requests ignore user curl configuration.
+  The mirror is accepted only when its `HEAD` exactly matches
+  an anonymously queried official GitHub default-branch SHA; its `origin` is
+  then restored to the official GitHub URL. Rejected partial checkouts remain
+  isolated under their unique task workspace for diagnosis. If Git still fails,
+  the package resolves the immutable default
   branch SHA through GitHub's public API, downloads the official codeload ZIP,
   validates entry count, compressed/expanded size, traversal, duplicate paths,
   symlinks/reparse points and compression ratio, then extracts each file with

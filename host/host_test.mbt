@@ -1,4 +1,21 @@
 ///|
+async test "anonymous git isolation is child-local" {
+  if @host.windows() {
+    let result = @host.run(
+      "powershell",
+      [
+        "-NoProfile", "-NonInteractive", "-Command", "[Console]::Write($env:GIT_CONFIG_GLOBAL + '|' + $env:GIT_CONFIG_NOSYSTEM)",
+      ],
+      ".",
+      10000,
+      isolated_git=true,
+    )
+    assert_eq(result.code, 0)
+    assert_eq(result.output, "NUL|1")
+  }
+}
+
+///|
 test "sensitive environment values are not passed to project processes" {
   assert_true(@host.sensitive_name("OPENROUTER_API_KEY"))
   assert_true(@host.sensitive_name("GITHUB_TOKEN"))

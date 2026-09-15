@@ -305,12 +305,23 @@ pub async fn run(
   timeout_ms : Int,
   on_output? : (String) -> Unit = _ => (),
   on_chunk? : (String) -> Unit = _ => (),
+  isolated_git? : Bool = false,
 ) -> CommandResult {
   let (exe, argv) = match command(program, args, cwd) {
     Ok(pair) => pair
     Err(message) => return { code: 127, output: message, timed_out: false, }
   }
   let mut output = ""
+  let command_env = safe_env()
+  if isolated_git {
+    command_env["GIT_CONFIG_GLOBAL"] = if windows() {
+      "NUL"
+    } else {
+      "/dev/null"
+    }
+    command_env["GIT_CONFIG_NOSYSTEM"] = "1"
+    command_env.remove("GIT_PROXY_COMMAND")
+  }
   let result = @async.with_timeout_opt(timeout_ms, () => {
     let (reader, writer) = @process.read_from_process()
     @async.with_task_group() <| group => {
@@ -346,7 +357,7 @@ pub async fn run(
           argv[:],
           cwd=cwd[:],
           inherit_env=false,
-          extra_env=safe_env(),
+          extra_env=command_env,
           stdout=writer,
           stderr=writer,
           no_console_window=true,

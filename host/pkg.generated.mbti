@@ -20,7 +20,7 @@ pub fn redact(String) -> String
 
 pub fn resolve(String) -> String?
 
-pub async fn run(String, Array[String], String, Int, on_output? : (String) -> Unit, on_chunk? : (String) -> Unit) -> CommandResult
+pub async fn run(String, Array[String], String, Int, on_output? : (String) -> Unit, on_chunk? : (String) -> Unit, isolated_git? : Bool) -> CommandResult
 
 pub fn safe_env() -> Map[String, String]
 
