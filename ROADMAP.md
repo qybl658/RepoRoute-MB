@@ -21,6 +21,7 @@
 - [x] 显式确认后一次性依赖镜像回退、报告内已知 Dockerfile 配方修复。
 - [x] WSL 等待标记按启动周期重检，结果不确定时禁止自动重放。
 - [x] 基于运行状态与作者 README 的离线使用指导。
-- [ ] 完整 Windows 可选功能提权引导、真实跨重启验收、README AI 翻译及其余原版差异，见 [行为对照](docs/behavior-parity.md)。
+- [x] Windows 可选功能原生 UAC 引导、匿名同 SHA Git 镜像回退、README AI 中文指南、缺 pip/pytest/Vite 修复与 venv 备份恢复。
+- [ ] 真实 UAC/重启、实际付费模型及更多第三方仓库验收；源码行为对应关系见 [行为对照](docs/behavior-parity.md)。
 
 勾选功能表示代码已实现，并不替代最后几项实际环境验收。不要把单元测试或可控示例的通过描述成对任意仓库的保证。

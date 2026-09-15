@@ -85,6 +85,41 @@ fn save(
     "\n```\n"
   @fs.write_string_to_file(@host.join(report_dir, "README.md"), guide)
   write_beginner_guide(root, report_dir, status, health)
+  if @host.windows() {
+    let exe = @env.args()[0]
+    let exe = if exe.contains(":") {
+      exe
+    } else {
+      @host.join(@env.current_dir().unwrap_or("."), exe)
+    }
+    @fs.write_string_to_file(
+      @host.join(report_dir, "生成中文小白指南.bat"),
+      @host.windows_launcher(
+        exe,
+        ["guide", @host.join(report_dir, "deployment.json")],
+        @host.app_root(),
+        false,
+      ),
+    )
+    if status == "SUCCEEDED" || status == "VERIFIED_HTTP" {
+      @fs.write_string_to_file(
+        @host.join(report_dir, "重新运行已验证入口.bat"),
+        @host.windows_launcher(
+          exe,
+          [
+            "resume",
+            @host.join(report_dir, "deployment.json"),
+            "--execute",
+            "--trust-project",
+            "--install",
+            "--serve",
+          ],
+          @host.app_root(),
+          false,
+        ),
+      )
+    }
+  }
   report
 }
 
@@ -334,6 +369,42 @@ pub async fn deploy(
       step.args.insert(1, "--file")
       step.args.insert(2, docker_repair_path)
     }
+    let mut selected_program = step.program
+    if step.phase == "prepare" &&
+      step.args == ["-m", "venv", ".repowayfinder-venv"] {
+      selected_program = select_project_python(root, step.program)
+      let prepared = prepare_python_environment(
+        root, report_dir, selected_program,
+      )
+      if prepared.status.has_prefix("waiting_") {
+        return save(
+          report_dir,
+          root,
+          plan.candidate_index,
+          "WAITING_ENVIRONMENT",
+          prepared.message,
+          attempts,
+          plan.to_json(),
+          health,
+        )
+      }
+      attempts.push({
+        "phase": "python-environment",
+        "status": prepared.status,
+        "selected_version": prepared.selected_version,
+        "required_version": prepared.required_version,
+        "backup_path": prepared.backup_path,
+        "rollback_path": prepared.rollback_path,
+      })
+      if prepared.status == "ready_reuse" {
+        continue
+      }
+    }
+    let step : @lib.DeploymentStep = {
+      phase: step.phase,
+      program: selected_program,
+      args: step.args,
+    }
     println("[" + step.phase + "] " + step.program + " " + step.args.join(" "))
     if step.phase == "start" {
       let initial = launch(step, root, health, serve, task_name)
@@ -345,9 +416,16 @@ pub async fn deploy(
         "args": step.args,
         "result": result,
       })
-      if status == "FAILED" && plan.candidate.ecosystem.has_prefix("python") {
-        if repair_missing_python(root, result, allow_install) is Some(repaired) {
-          attempts.push({ "phase": "repair-missing-python", "result": repaired })
+      if status == "FAILED" &&
+        (
+          plan.candidate.ecosystem.has_prefix("python") ||
+          plan.candidate.ecosystem == "node"
+        ) {
+        if repair_dependency(root, result, allow_install) is Some(repaired) {
+          attempts.push({
+            "phase": "repair-missing-dependency",
+            "result": repaired,
+          })
           if repaired.code == 0 {
             let (retried_status, retried_result) = launch(
               step, root, health, serve, task_name,
@@ -403,6 +481,30 @@ pub async fn deploy(
           "result": retried,
         })
         result = retried
+      }
+    }
+    if result.code != 0 &&
+      ["install", "build"].contains(step.phase) &&
+      (
+        plan.candidate.ecosystem.has_prefix("python") ||
+        plan.candidate.ecosystem == "node"
+      ) {
+      if repair_dependency(root, result, allow_install) is Some(repaired) {
+        attempts.push({
+          "phase": "before-dependency-repair",
+          "program": step.program,
+          "args": step.args,
+          "result": result,
+        })
+        attempts.push({
+          "phase": "repair-missing-dependency",
+          "result": repaired,
+        })
+        if repaired.code == 0 {
+          result = @host.run(step.program, step.args, root, 600000, on_chunk=chunk => {
+            println(chunk)
+          })
+        }
       }
     }
     if step.phase == "validate-compose" {

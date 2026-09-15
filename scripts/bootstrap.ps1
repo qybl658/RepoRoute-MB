@@ -179,7 +179,7 @@ $effectiveArgs = @()
 if ($null -ne $CliArgs -and $CliArgs.Count -gt 0) {
     $knownCommands = @(
         'deploy', 'scan', 'resume', 'search', 'config', 'ai-config',
-        'analyze', 'diagnose', 'doctor', 'uninstall', 'help', '--help', '-h'
+        'analyze', 'diagnose', 'guide', 'doctor', 'uninstall', 'help', '--help', '-h'
     )
     if ($knownCommands -contains $CliArgs[0].ToLowerInvariant()) {
         $effectiveArgs = @($CliArgs)

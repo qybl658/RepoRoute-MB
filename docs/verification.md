@@ -4,7 +4,9 @@
 
 Windows 部署端到端检查覆盖八项行为；另有源码测试、真实 Docker 检查和从 ZIP 解压后的启动验收。
 
-本次集成的 MoonBit 原生测试：71/71 通过，`moon check --deny-warn` 与原生构建通过。原版迁移范围与差异见 [行为对照](behavior-parity.md)。
+本次集成的 MoonBit 原生测试累计覆盖 89 项并通过（88 项全量检查后，新增子进程 Git 配置隔离测试及 host 5/5 检查通过）；`moon check --deny-warn` 与原生构建通过。原版迁移范围与差异见 [行为对照](behavior-parity.md)。
+
+迁移专项实测覆盖九条路径：一次镜像重试/拒绝、作者 README 摘录、拒绝发送 AI 指南、Vite 修复后重新启动、报告内 Dockerfile 修复构建/拒绝、真实 Python venv 备份—重建—恢复、所需 Python 版本不存在时等待。镜像与 Docker 使用离线替身；虚拟环境使用本机解释器，恢复脚本实际执行。Windows UAC 启动器与三个子动作经 PowerShell 5 解析和模拟调用验证，未执行系统更改或重启。
 
 ## 已实际执行
 

@@ -11,6 +11,28 @@ test "validates endpoint and model settings" {
 }
 
 ///|
+test "provider keys cannot cross endpoint ownership" {
+  assert_false(
+    provider_key_names("https://api.deepseek.com").contains(
+      "OPENROUTER_API_KEY",
+    ),
+  )
+  assert_false(
+    provider_key_names("https://openrouter.ai.evil.example/v1").contains(
+      "OPENROUTER_API_KEY",
+    ),
+  )
+  assert_true(
+    provider_key_names("https://openrouter.ai/api/v1").contains(
+      "OPENROUTER_API_KEY",
+    ),
+  )
+  assert_eq(provider_key_names("https://custom.example"), [
+    "REPOWAYFINDER_AI_API_KEY",
+  ])
+}
+
+///|
 test "configuration parser accepts Windows UTF-8 BOM" {
   assert_true(parse_config_text("\u{FEFF}{\"model\":\"test\"}") is Object(_))
   assert_true(parse_config_text("not json") is Null)

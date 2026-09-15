@@ -251,7 +251,10 @@ fn classify_windows_docker(
   } else if desktop_code == 0 {
     "waiting_environment"
   } else {
-    "missing"
+    // A working Docker CLI proves an existing installation, even when an
+    // older Desktop release lacks `docker desktop version`. A daemon/startup
+    // failure must never authorize reinstalling Docker.
+    "waiting_environment"
   }
 }
 
@@ -1423,25 +1426,158 @@ async fn install_system(
 }
 
 ///|
-fn wsl_repair_action(
+fn wsl_waiting_marker_path() -> String {
+  join(@host.tool_root(), "wsl-maintenance-waiting.json")
+}
+
+///|
+fn windows_feature_state(output : String) -> String {
+  for line in output.replace_all(old="\r\n", new="\n").split("\n") {
+    let state = line.trim().to_lower().to_owned()
+    if ["enabled", "disabled", "enablepending", "disablepending", "unknown"].contains(
+        state,
+      ) {
+      return state
+    }
+  }
+  "unknown"
+}
+
+///|
+async fn virtual_machine_platform_state(cwd : String) -> String {
+  guard @host.resolve("powershell") is Some(powershell) else {
+    return "unknown"
+  }
+  let script =
+    #|& { param($name)
+    #|$ErrorActionPreference='Stop'
+    #|try {
+    #|  $feature=Get-WindowsOptionalFeature -Online -FeatureName $name -ErrorAction Stop
+    #|  Write-Output $feature.State.ToString()
+    #|  exit 0
+    #|} catch {}
+    #|try {
+    #|  $feature=Get-CimInstance Win32_OptionalFeature -Filter "Name='$name'" -ErrorAction Stop
+    #|  if ($null -eq $feature) { Write-Output 'Unknown'; exit 1 }
+    #|  switch ([int]$feature.InstallState) {
+    #|    1 { Write-Output 'Enabled'; exit 0 }
+    #|    2 { Write-Output 'Disabled'; exit 0 }
+    #|    default { Write-Output 'Unknown'; exit 1 }
+    #|  }
+    #|} catch { Write-Output 'Unknown'; exit 1 }
+    #|}
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script, "VirtualMachinePlatform",
+    ],
+    cwd,
+    30000,
+  )
+  windows_feature_state(result.output)
+}
+
+///|
+fn windows_docker_preparation_action(
+  wsl_available : Bool,
   status_code : Int,
   output : String,
   timed_out : Bool,
+  feature_state : String,
 ) -> String {
-  if wsl_status_ready(status_code, output, timed_out) {
-    "none"
-  } else if wsl_status_needs_install(output) {
-    "install"
-  } else if wsl_status_needs_update(output) {
-    "update"
+  if feature_state == "enablepending" || feature_state == "disablepending" {
+    "restart_required"
+  } else if wsl_available && wsl_status_needs_install(output) {
+    // The modern WSL installer owns its package and required feature setup.
+    // Running legacy Microsoft-Windows-Subsystem-Linux DISM first adds an
+    // unnecessary restart and incorrectly makes WSL1 a WSL2 prerequisite.
+    "install_wsl"
+  } else if wsl_available && wsl_status_needs_update(output) {
+    "update_wsl"
+  } else if feature_state == "disabled" {
+    "enable_virtual_machine_platform"
+  } else if wsl_available &&
+    wsl_status_ready(status_code, output, timed_out) &&
+    feature_state == "enabled" {
+    "ready"
   } else {
     "manual"
   }
 }
 
 ///|
-fn wsl_waiting_marker_path() -> String {
-  join(@host.tool_root(), "wsl-maintenance-waiting.json")
+fn elevated_windows_action_script(action : String) -> String? {
+  match action {
+    "enable_virtual_machine_platform" =>
+      Some(
+        (
+          #|$ErrorActionPreference='Stop'
+          #|$feature=Get-WindowsOptionalFeature -Online -FeatureName 'VirtualMachinePlatform' -ErrorAction Stop
+          #|if ($feature.State -eq 'Enabled') { exit 0 }
+          #|& (Join-Path $env:SystemRoot 'System32\dism.exe') /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+          #|$code=$LASTEXITCODE
+          #|if ($code -eq 0 -or $code -eq 3010) { exit 20 }
+          #|exit $code
+        ),
+      )
+    "install_wsl" =>
+      Some(
+        (
+          #|$ErrorActionPreference='Stop'
+          #|& (Join-Path $env:SystemRoot 'System32\wsl.exe') --install --no-distribution
+          #|exit $LASTEXITCODE
+        ),
+      )
+    "update_wsl" =>
+      Some(
+        (
+          #|$ErrorActionPreference='Stop'
+          #|& (Join-Path $env:SystemRoot 'System32\wsl.exe') --update
+          #|exit $LASTEXITCODE
+        ),
+      )
+    _ => None
+  }
+}
+
+///|
+fn elevated_windows_launcher_script() -> String {
+  (
+    #|& { param($encoded)
+    #|$ErrorActionPreference='Stop'
+    #|try {
+    #|  $shell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    #|  $process=Start-Process -FilePath $shell -Verb RunAs -ArgumentList @('-NoLogo','-NoProfile','-EncodedCommand',$encoded) -WindowStyle Hidden -Wait -PassThru
+    #|  Write-Output ('REPOWAYFINDER_ELEVATED_EXIT=' + $process.ExitCode)
+    #|  exit $process.ExitCode
+    #|} catch {
+    #|  Write-Output ('REPOWAYFINDER_UAC_ERROR=' + $_.Exception.Message)
+    #|  exit 1223
+    #|}
+    #|}
+  )
+}
+
+///|
+async fn run_elevated_windows_action(
+  action : String,
+  cwd : String,
+) -> (Int, String, Bool)? {
+  guard @host.resolve("powershell") is Some(powershell) &&
+    elevated_windows_action_script(action) is Some(child_script) else {
+    return None
+  }
+  let encoded = @base64.encode(
+    @utf16.encode(child_script[:], endianness=Little)[:],
+  )
+  let launcher = elevated_windows_launcher_script()
+  let result = @host.run(
+    powershell,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", launcher, encoded],
+    cwd,
+    660000,
+  )
+  Some((result.code, result.output, result.timed_out))
 }
 
 ///|
@@ -1515,6 +1651,178 @@ fn write_wsl_marker(
 }
 
 ///|
+async fn prepare_windows_docker_environment(
+  cwd : String,
+  allow_install : Bool,
+) -> Bool {
+  let mut wsl_available = false
+  let mut status_code = 127
+  let mut status_output = "Windows 找不到 wsl.exe。"
+  let mut status_timed_out = false
+  if @host.resolve("wsl") is Some(wsl) {
+    wsl_available = true
+    let status = @host.run(wsl, ["--status"], cwd, 30000)
+    status_code = status.code
+    status_output = status.output
+    status_timed_out = status.timed_out
+  }
+  let feature_state = virtual_machine_platform_state(cwd)
+  let action = windows_docker_preparation_action(
+    wsl_available, status_code, status_output, status_timed_out, feature_state,
+  )
+  let waiting_marker = wsl_waiting_marker_path()
+  if action == "ready" {
+    if @fs.path_exists(waiting_marker) {
+      @fs.remove_file(waiting_marker) catch {
+        _ => ()
+      }
+    }
+    return true
+  }
+  if @fs.path_exists(waiting_marker) {
+    let marker_content = @fs.read_file_to_string(waiting_marker) catch {
+      _ => ""
+    }
+    let disposition = wsl_marker_disposition(
+      marker_content,
+      windows_boot_id(cwd),
+    )
+    if disposition == "stale" {
+      @fs.remove_file(waiting_marker) catch {
+        _ => ()
+      }
+    } else {
+      let explanation = if disposition == "same_boot" {
+        "本次开机期间已经完成过 Windows/WSL 系统准备；在重启前不会重复请求 UAC 或重放命令。请保存工作并由你本人决定何时重启 Windows，然后重新运行已保存的部署。"
+      } else {
+        "上一次 Windows/WSL 系统准备的结果不确定；为避免重复系统变更，不会自动重放。请先核对屏幕提示和该检查点：" +
+        waiting_marker
+      }
+      println("WAITING_ENVIRONMENT: " + explanation + "\n" + status_output)
+      return false
+    }
+  }
+  if action == "restart_required" {
+    if ensure_tool_root() {
+      write_wsl_marker(
+        waiting_marker,
+        "VirtualMachinePlatform enable pending",
+        "restart_required",
+        windows_boot_id(cwd),
+      )
+      |> ignore
+    }
+    println(
+      "WAITING_ENVIRONMENT: Virtual Machine Platform 正在等待 Windows 重启后生效。本次不会重复修改功能，也不会自动重启；请保存工作并由你本人决定何时重启。",
+    )
+    return false
+  }
+  if action == "manual" {
+    let detail = if !wsl_available {
+      "Windows 找不到 wsl.exe。RepoWayfinder 已检查 Virtual Machine Platform，但无法在缺少官方 WSL 命令时安全安装 WSL 包；请先通过 Windows Update 恢复系统提供的 wsl.exe。"
+    } else if feature_state == "unknown" {
+      "无法可靠读取 Virtual Machine Platform 状态，因此不会猜测或请求提权。请检查 Windows 可选功能、Windows Update 或企业策略。"
+    } else {
+      "Virtual Machine Platform 已启用，但 WSL 仍报告虚拟化或平台阻塞。请自行处理 BIOS/UEFI 固件虚拟化或 Windows 明确显示的重启要求；RepoWayfinder 不会修改固件或安全策略。"
+    }
+    println("WAITING_ENVIRONMENT: " + detail + "\n" + status_output)
+    return false
+  }
+  let command_text = match action {
+    "enable_virtual_machine_platform" =>
+      "使用 Windows DISM 启用 VirtualMachinePlatform（/all /norestart）"
+    "install_wsl" => "执行官方 wsl --install --no-distribution"
+    "update_wsl" => "执行官方 wsl --update"
+    _ => ""
+  }
+  if !allow_install {
+    println(
+      "WAITING_ENVIRONMENT: 当前运行不允许系统准备。根据现有证据，下一项受支持操作是：" +
+      command_text +
+      "。不会安装或重装现有 Docker Desktop。",
+    )
+    return false
+  }
+  guard @host.prompt(
+    "Docker 的 Windows/WSL 前置条件尚未就绪。是否允许 RepoWayfinder 现在" +
+    command_text +
+    "？确认后 Windows 会显示原生 UAC 界面，仍由你本人批准或取消；本操作不会关闭 UAC、绕过安全策略或自动重启 Windows。",
+  ) else {
+    println(
+      "WAITING_ENVIRONMENT: 已取消本次系统准备（默认选择为“否”）。没有修改 Windows 功能、WSL 或现有 Docker Desktop。",
+    )
+    return false
+  }
+  guard ensure_tool_root() else { return false }
+  let boot_id = windows_boot_id(cwd)
+  if !write_wsl_marker(waiting_marker, command_text, "uncertain", boot_id) {
+    println(
+      "WAITING_ENVIRONMENT: 无法在系统操作前写入防重复执行检查点，因此没有请求 UAC，也没有执行系统命令。",
+    )
+    return false
+  }
+  guard run_elevated_windows_action(action, cwd) is Some(result) else {
+    println(
+      "WAITING_ENVIRONMENT: Windows PowerShell 或受支持的提权动作不可用；检查点已保留，未执行其他安装器。",
+    )
+    return false
+  }
+  let (code, output, timed_out) = result
+  let succeeded = !timed_out &&
+    (code == 0 || (action == "enable_virtual_machine_platform" && code == 20))
+  if !succeeded {
+    if code == 1223 && output.contains("REPOWAYFINDER_UAC_ERROR=") {
+      @fs.remove_file(waiting_marker) catch {
+        _ => ()
+      }
+      println(
+        "WAITING_ENVIRONMENT: Windows 没有启动管理员操作（可能是你取消了 UAC）。本次没有修改系统状态；防重复检查点已清除，之后仍可再次明确选择。",
+      )
+      return false
+    }
+    println(
+      "WAITING_ENVIRONMENT: 系统准备未能确认完成。用户取消 UAC、Windows 策略拒绝或命令失败都会保留检查点，避免自动重放；没有尝试重装 Docker、降低 UAC 或重启。\n" +
+      output,
+    )
+    return false
+  }
+  let after_feature = virtual_machine_platform_state(cwd)
+  let mut after_available = false
+  let mut after_code = 127
+  let mut after_output = "Windows 找不到 wsl.exe。"
+  let mut after_timed_out = false
+  if @host.resolve("wsl") is Some(wsl) {
+    after_available = true
+    let after = @host.run(wsl, ["--status"], cwd, 30000)
+    after_code = after.code
+    after_output = after.output
+    after_timed_out = after.timed_out
+  }
+  if windows_docker_preparation_action(
+      after_available, after_code, after_output, after_timed_out, after_feature,
+    ) ==
+    "ready" {
+    @fs.remove_file(waiting_marker) catch {
+      _ => ()
+    }
+    return true
+  }
+  if !write_wsl_marker(
+      waiting_marker, command_text, "restart_required", boot_id,
+    ) {
+    println(
+      "WAITING_ENVIRONMENT: 系统命令已成功返回，但无法保存待重启状态。请先人工核对 Windows/WSL 状态；本次不会重复命令或启动 Docker。",
+    )
+    return false
+  }
+  println(
+    "WAITING_ENVIRONMENT: 系统准备命令已成功返回，但 WSL2 尚未就绪。待重启状态已保存；请保存其他工作并由你本人决定何时重启 Windows，之后重新运行已保存的部署。本次不会自动重启或重装 Docker。\n" +
+    after_output,
+  )
+  false
+}
+
+///|
 async fn repair_docker(cwd : String, allow_install : Bool) -> Bool {
   guard @host.windows() else {
     println(
@@ -1523,6 +1831,9 @@ async fn repair_docker(cwd : String, allow_install : Bool) -> Bool {
     return false
   }
   guard @host.resolve("docker") is Some(docker) else { return false }
+  if !prepare_windows_docker_environment(cwd, allow_install) {
+    return false
+  }
   if !allow_install {
     println(
       "WAITING_ENVIRONMENT: Docker CLI 已安装，但守护进程已停止或不可用。本次运行不允许启动 Docker Desktop，也不会重新安装现有版本。",
@@ -1563,146 +1874,7 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
     println("WSL 修复功能仅支持 Windows。")
     return false
   }
-  guard @host.resolve("wsl") is Some(wsl) else {
-    println(
-      "WAITING_ENVIRONMENT: 未找到 Windows WSL 命令。RepoWayfinder 无法通过隐藏或提权助手安全启用 Windows 功能。请打开管理员终端，确认后运行 `wsl --install --no-distribution`；仅在 Windows 要求时重启。",
-    )
-    return false
-  }
-  let status = @host.run(wsl, ["--status"], cwd, 30000)
-  if wsl_status_ready(status.code, status.output, status.timed_out) {
-    let marker = wsl_waiting_marker_path()
-    if @fs.path_exists(marker) {
-      @fs.remove_file(marker) catch {
-        _ => ()
-      }
-    }
-    return true
-  }
-  let waiting_marker = wsl_waiting_marker_path()
-  if @fs.path_exists(waiting_marker) {
-    let marker_content = @fs.read_file_to_string(waiting_marker) catch {
-      _ => ""
-    }
-    let disposition = wsl_marker_disposition(
-      marker_content,
-      windows_boot_id(cwd),
-    )
-    if disposition == "stale" {
-      // The restart happened. Remove only the obsolete wait marker and decide
-      // from the fresh wsl --status evidence below; ownership receipts remain.
-      @fs.remove_file(waiting_marker) catch {
-        _ => ()
-      }
-    } else {
-      let explanation = if disposition == "same_boot" {
-        "之前的 WSL 官方命令已在本次 Windows 启动周期完成；在重启前不会重复执行。"
-      } else {
-        "之前的 WSL 官方命令结果不确定；为避免重复系统变更，不会自动重放。请先人工核对 WSL 状态和该检查点。"
-      }
-      println("WAITING_ENVIRONMENT: " + explanation + "\n" + status.output)
-      return false
-    }
-  }
-  let action = wsl_repair_action(status.code, status.output, status.timed_out)
-  if action == "manual" {
-    println(
-      "WAITING_ENVIRONMENT: WSL 尚未就绪，但状态并未明确要求安装或更新内核。RepoWayfinder 不会猜测操作；请自行完成虚拟化、虚拟机平台、固件或重启要求。\n" +
-      status.output,
-    )
-    return false
-  }
-  let suffix = if action == "install" { " --no-distribution" } else { "" }
-  if !allow_install {
-    println(
-      "WAITING_ENVIRONMENT: WSL 状态检查失败，并且本次运行不允许修复。根据现有证据，应执行的官方操作是 `wsl --\{action}\{suffix}`。",
-    )
-    return false
-  }
-  let args = if action == "update" {
-    ["--update"]
-  } else {
-    ["--install", "--no-distribution"]
-  }
-  if action == "install" {
-    guard @host.resolve("powershell") is Some(powershell) else {
-      println(
-        "WAITING_ENVIRONMENT: PowerShell 不可用，无法检查当前是否已提权。请在管理员终端中自行运行 `wsl --install --no-distribution`。",
-      )
-      return false
-    }
-    let elevated = @host.run(
-      powershell,
-      [
-        "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-      ],
-      cwd,
-      15000,
-    )
-    if elevated.code != 0 || !elevated.output.trim().to_lower().contains("true") {
-      println(
-        "WAITING_ENVIRONMENT: 安装 WSL 需要管理员终端，并且可能需要重启。RepoWayfinder 不会自动触发 UAC。请自行运行 `wsl --install --no-distribution`，查看并决定 Windows 提示，然后重新运行已保存的部署。",
-      )
-      return false
-    }
-  }
-  let command_text = "wsl " + args.join(" ")
-  guard @host.prompt(
-    "WSL 状态已证明运行环境尚未就绪。是否允许现在执行官方命令 `\{command_text}`？RepoWayfinder 不会代你接受许可、回应 UAC 或重启 Windows。",
-  ) else {
-    println(
-      "WAITING_ENVIRONMENT: 已取消 WSL 修复（默认选择为“否”）。",
-    )
-    return false
-  }
-  guard ensure_tool_root() else { return false }
-  let boot_id = windows_boot_id(cwd)
-  if !write_wsl_marker(waiting_marker, command_text, "uncertain", boot_id) {
-    println(
-      "WAITING_ENVIRONMENT: 无法写入 WSL 防重复执行检查点，因此没有执行系统命令。",
-    )
-    return false
-  }
-  let result = @host.run(wsl, args, cwd, 600000)
-  if result.code != 0 || result.timed_out {
-    println(
-      "WAITING_ENVIRONMENT: `\{command_text}` 未能完成。为避免在结果不确定时重复执行，检查点已保留；没有尝试其他安装器、自动回应 UAC 或重启。请先核对 WSL 状态，再检查或移除该文件：\{waiting_marker}\n" +
-      result.output,
-    )
-    return false
-  }
-  if !write_wsl_marker(
-      waiting_marker, command_text, "restart_required", boot_id,
-    ) {
-    println(
-      "WAITING_ENVIRONMENT: WSL 命令已返回成功，但无法持久化安全续跑状态。请先人工核对 WSL 状态；不会在本次运行中重复命令。",
-    )
-    return false
-  }
-  if action == "install" {
-    write_receipt(
-      "wsl",
-      "wsl-helper",
-      "wsl --install --no-distribution",
-      result.output.trim().to_owned(),
-    )
-    |> ignore
-  }
-  let after = @host.run(wsl, ["--status"], cwd, 30000)
-  if wsl_status_ready(after.code, after.output, after.timed_out) {
-    let marker = wsl_waiting_marker_path()
-    if @fs.path_exists(marker) {
-      @fs.remove_file(marker) catch {
-        _ => ()
-      }
-    }
-    true
-  } else {
-    println(
-      "WAITING_ENVIRONMENT: WSL 官方命令已经完成，但 WSL 尚未就绪。请完成屏幕上显示的 Windows 设置或重启要求后再次运行；在此状态未解决前，RepoWayfinder 不会重复该命令。",
-    )
-    false
-  }
+  prepare_windows_docker_environment(cwd, allow_install)
 }
 
 ///|

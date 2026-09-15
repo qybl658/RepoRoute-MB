@@ -136,7 +136,13 @@ fn resolve_settings() -> Settings raise Failure {
   let base_raw = match @env.get_env_var("REPOWAYFINDER_AI_BASE_URL") {
     Some(value) => value
     None =>
-      config_string(saved, "base_url").unwrap_or("https://api.deepseek.com")
+      config_string(saved, "base_url").unwrap_or(
+        if first_env(["OPENROUTER_API_KEY"]) is Some(_) {
+          "https://openrouter.ai/api/v1"
+        } else {
+          "https://api.deepseek.com"
+        },
+      )
   }
   guard normalize_base_url(base_raw) is Some(base_url) else {
     fail("AI base URL must be a credential-free HTTPS URL.")
@@ -151,9 +157,7 @@ fn resolve_settings() -> Settings raise Failure {
     None => config_string(saved, "model").unwrap_or(default_model)
   }
   guard valid_model(model) else { fail("AI model name is invalid.") }
-  let env_key = first_env([
-    "REPOWAYFINDER_AI_API_KEY", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY",
-  ])
+  let env_key = first_env(provider_key_names(base_url))
   let dpapi = config_string(saved, "api_key_dpapi") is Some(_)
   let provider = if base_url.contains("openrouter.ai") {
     "openrouter"
@@ -173,6 +177,20 @@ fn resolve_settings() -> Settings raise Failure {
     },
     configured: env_key is Some(_) || dpapi,
     dpapi_configured: dpapi,
+  }
+}
+
+///|
+/// Named provider credentials must never be sent to another provider.
+fn provider_key_names(base_url : String) -> Array[String] {
+  if base_url == "https://openrouter.ai" ||
+    base_url.has_prefix("https://openrouter.ai/") {
+    ["REPOWAYFINDER_AI_API_KEY", "OPENROUTER_API_KEY"]
+  } else if base_url == "https://api.deepseek.com" ||
+    base_url.has_prefix("https://api.deepseek.com/") {
+    ["REPOWAYFINDER_AI_API_KEY", "DEEPSEEK_API_KEY"]
+  } else {
+    ["REPOWAYFINDER_AI_API_KEY"]
   }
 }
 
@@ -261,10 +279,7 @@ fn redact_with_secret(text : String, secret : String) -> String {
 
 ///|
 async fn load_api_key(settings : Settings) -> String {
-  if first_env([
-      "REPOWAYFINDER_AI_API_KEY", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY",
-    ])
-    is Some((_, key)) {
+  if first_env(provider_key_names(settings.base_url)) is Some((_, key)) {
     return key
   }
   guard settings.dpapi_configured && @host.windows() else {

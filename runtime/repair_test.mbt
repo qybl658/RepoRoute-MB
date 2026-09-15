@@ -23,4 +23,42 @@ test "missing imports are mapped, not blindly installed" {
     ),
     None,
   )
+  assert_eq(
+    @runtime.missing_known_python_package(
+      "ImportError: No module named \"PIL.Image\"",
+    ),
+    Some("Pillow"),
+  )
+}
+
+///|
+test "dependency repairs cover only bounded known actions" {
+  assert_eq(
+    @runtime.infer_dependency_repair(
+      "ModuleNotFoundError: No module named 'pip'",
+    ),
+    Some({ kind: "python-ensurepip", package_name: "", timeout_ms: 120000, }),
+  )
+  assert_eq(
+    @runtime.infer_dependency_repair("ImportError: No module named \"pip\""),
+    Some({ kind: "python-ensurepip", package_name: "", timeout_ms: 120000, }),
+  )
+  assert_eq(
+    @runtime.infer_dependency_repair("pytest: command not found"),
+    Some({ kind: "python-package", package_name: "pytest", timeout_ms: 300000, }),
+  )
+  assert_eq(
+    @runtime.infer_dependency_repair("sh: vite: not found"),
+    Some({ kind: "node-install", package_name: "", timeout_ms: 300000, }),
+  )
+  assert_eq(
+    @runtime.infer_dependency_repair(
+      "ModuleNotFoundError: No module named 'private_plugin'",
+    ),
+    None,
+  )
+  assert_eq(
+    @runtime.infer_dependency_repair("please run pip install surprise"),
+    None,
+  )
 }

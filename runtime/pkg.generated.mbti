@@ -7,6 +7,8 @@ import {
 }
 
 // Values
+pub async fn archive_project_python_venv(String, String) -> (String, String)
+
 pub fn collect(String) -> Array[@repowayfinder_mbt.SourceFile]
 
 pub async fn configure_interactive(String) -> Json
@@ -23,6 +25,10 @@ pub fn detect_eol_debian_dockerfile(String, Bool) -> DockerEolDiagnosis?
 
 pub fn diagnose(String) -> Json raise
 
+pub async fn enrich_beginner_guide(String, Bool) -> Json
+
+pub fn infer_dependency_repair(String) -> DependencyRepair?
+
 pub fn missing_known_python_package(String) -> String?
 
 pub fn normalize_ai_plan(@repowayfinder_mbt.AiDeploymentProposal, Bool) -> @repowayfinder_mbt.DeploymentPlan raise
@@ -33,11 +39,23 @@ pub async fn prepare_compose(Json, String, Bool) -> Json
 
 pub fn prepare_eol_docker_repair(String, String, Bool, Bool) -> DockerRepairResult raise
 
+pub async fn prepare_python_environment(String, String, String) -> PythonEnvironmentResult
+
 pub async fn probe(String, Array[String], String) -> Int
+
+pub fn python_environment_action(String?, String?, Bool, String?) -> String
+
+pub fn python_version_from_output(String) -> String?
+
+pub fn read_python_version_file(String) -> String?
 
 pub fn readme_usage_excerpt(String) -> String
 
+pub fn render_chinese_guide(Json) -> String raise
+
 pub async fn resume_deployment(String, Bool, Bool, Bool, Bool) -> Json
+
+pub async fn select_project_python(String, String) -> String
 
 pub fn transient_network_failure(String) -> Bool
 
@@ -47,6 +65,12 @@ pub(all) suberror DeploymentError {
 }
 
 // Types and methods
+pub(all) struct DependencyRepair {
+  kind : String
+  package_name : String
+  timeout_ms : Int
+} derive(Eq, @debug.Debug)
+
 pub(all) struct DockerEolDiagnosis {
   suite : String
   successor : String
@@ -60,6 +84,17 @@ pub(all) struct DockerRepairResult {
   replacement : String
   original_repository_modified : Bool
 } derive(Eq, ToJson, @debug.Debug)
+
+pub(all) struct PythonEnvironmentResult {
+  status : String
+  required_version : String
+  selected_version : String
+  venv_version : String
+  venv_path : String
+  backup_path : String
+  rollback_path : String
+  message : String
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

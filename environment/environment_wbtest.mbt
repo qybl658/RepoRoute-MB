@@ -52,20 +52,6 @@ test "WSL exit zero does not override localized readiness blockers" {
   assert_false(
     wsl_status_ready(0, "WSL2 不可用；请启用虚拟机平台。", false),
   )
-  assert_eq(
-    wsl_repair_action(0, "WSL2 不可用；请启用虚拟机平台。", false),
-    "manual",
-  )
-  assert_eq(
-    wsl_repair_action(
-      1, "WSL2 内核缺失，请运行 wsl.exe --update。", false,
-    ),
-    "update",
-  )
-  assert_eq(
-    wsl_repair_action(1, "WSL is not installed; run wsl --install", false),
-    "install",
-  )
 }
 
 ///|
@@ -96,11 +82,169 @@ test "uncertain or legacy WSL markers never authorize automatic replay" {
 }
 
 ///|
+test "Windows preparation decisions preserve modern WSL2 policy" {
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 1, "WSL is not installed; run wsl --install", false, "disabled",
+    ),
+    "install_wsl",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 1, "WSL kernel missing; run wsl --update", false, "disabled",
+    ),
+    "update_wsl",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 0, "WSL2 不可用；请启用虚拟机平台。", false, "disabled",
+    ),
+    "enable_virtual_machine_platform",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 0, "默认版本: 2", false, "enablepending",
+    ),
+    "restart_required",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 1, "WSL is not installed; run wsl --install", false, "disablepending",
+    ),
+    "restart_required",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 0, "默认版本: 2", false, "enabled",
+    ),
+    "ready",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      true, 0, "默认版本: 2", false, "unknown",
+    ),
+    "manual",
+  )
+  assert_eq(
+    windows_docker_preparation_action(
+      false, 127, "Windows 找不到 wsl.exe。", false, "disabled",
+    ),
+    "enable_virtual_machine_platform",
+  )
+}
+
+///|
+test "Windows feature mock output is normalized conservatively" {
+  assert_eq(windows_feature_state("Enabled\r\n"), "enabled")
+  assert_eq(windows_feature_state("noise\nDisablePending\n"), "disablepending")
+  assert_eq(windows_feature_state("policy denied"), "unknown")
+}
+
+///|
+test "generated Windows helper uses native UAC and a narrow no-reboot allowlist" {
+  let launcher = elevated_windows_launcher_script()
+  assert_true(launcher.contains("Start-Process"))
+  assert_true(launcher.contains("-Verb RunAs"))
+  assert_true(launcher.contains("-WindowStyle Hidden"))
+  assert_true(launcher.contains("-Wait -PassThru"))
+  assert_false(launcher.to_lower().contains("consentpromptbehavioradmin"))
+  assert_false(launcher.to_lower().contains("enablelua"))
+  assert_false(launcher.to_lower().contains("shutdown.exe"))
+  guard elevated_windows_action_script("enable_virtual_machine_platform")
+    is Some(feature) else {
+    fail("expected Virtual Machine Platform helper")
+  }
+  assert_true(feature.contains("/featurename:VirtualMachinePlatform"))
+  assert_true(feature.contains("/norestart"))
+  assert_false(feature.contains("Microsoft-Windows-Subsystem-Linux"))
+  assert_false(feature.to_lower().contains("restart-computer"))
+  guard elevated_windows_action_script("install_wsl") is Some(install) else {
+    fail("expected WSL install helper")
+  }
+  assert_true(install.contains("--install --no-distribution"))
+  guard elevated_windows_action_script("update_wsl") is Some(update) else {
+    fail("expected WSL update helper")
+  }
+  assert_true(update.contains("--update"))
+  assert_eq(elevated_windows_action_script("unreviewed"), None)
+}
+
+///|
+async test "generated Windows helper scripts parse in Windows PowerShell" {
+  if @host.windows() && @host.resolve("powershell") is Some(powershell) {
+    let parser =
+      #|& { param($encoded)
+      #|$source=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+      #|$tokens=$null; $errors=$null
+      #|[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors) | Out-Null
+      #|if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Output $_.Message }; exit 1 }
+      #|}
+    let scripts = [elevated_windows_launcher_script()]
+    for
+      action in ["enable_virtual_machine_platform", "install_wsl", "update_wsl"] {
+      guard elevated_windows_action_script(action) is Some(script) else {
+        fail("missing generated action script: " + action)
+      }
+      scripts.push(script)
+    }
+    for script in scripts {
+      let encoded = @base64.encode(
+        @utf16.encode(script[:], endianness=Little)[:],
+      )
+      let parsed = @host.run(
+        powershell,
+        [
+          "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", parser, encoded,
+        ],
+        current_dir(),
+        15000,
+      )
+      if parsed.code != 0 {
+        fail("PowerShell parser rejected generated helper:\n" + parsed.output)
+      }
+      assert_false(parsed.timed_out)
+    }
+  }
+}
+
+///|
+async test "Windows launcher reaches native RunAs contract under a safe mock" {
+  if @host.windows() && @host.resolve("powershell") is Some(powershell) {
+    let launcher = elevated_windows_launcher_script()
+    let encoded = @base64.encode(
+      @utf16.encode(launcher[:], endianness=Little)[:],
+    )
+    let mock =
+      #|& { param($launcherEncoded)
+      #|function Start-Process {
+      #|  param([string]$FilePath,[string]$Verb,[object[]]$ArgumentList,[string]$WindowStyle,[switch]$Wait,[switch]$PassThru)
+      #|  if ($Verb -ne 'RunAs' -or $WindowStyle -ne 'Hidden' -or -not $Wait -or -not $PassThru) { throw 'launcher contract mismatch' }
+      #|  if ($ArgumentList -notcontains '-EncodedCommand') { throw 'encoded child command missing' }
+      #|  [pscustomobject]@{ExitCode=0}
+      #|}
+      #|$source=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($launcherEncoded))
+      #|$block=[ScriptBlock]::Create($source)
+      #|& $block 'VABlAHMAdAA='
+      #|}
+    let result = @host.run(
+      powershell,
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", mock, encoded],
+      current_dir(),
+      15000,
+    )
+    if result.code != 0 {
+      fail("mocked UAC launcher contract failed:\n" + result.output)
+    }
+    assert_true(result.output.contains("REPOWAYFINDER_ELEVATED_EXIT=0"))
+  }
+}
+
+///|
 test "Windows Docker distinguishes CLI-only from stopped Desktop" {
   assert_eq(classify_windows_docker(1, 1, 1), "broken")
   assert_eq(classify_windows_docker(0, 0, 1), "ready")
   assert_eq(classify_windows_docker(0, 1, 0), "waiting_environment")
-  assert_eq(classify_windows_docker(0, 1, 1), "missing")
+  assert_eq(classify_windows_docker(0, 1, 1), "waiting_environment")
 }
 
 ///|

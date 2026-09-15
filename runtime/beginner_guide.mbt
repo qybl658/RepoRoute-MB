@@ -26,6 +26,79 @@ pub fn readme_usage_excerpt(text : String) -> String {
 }
 
 ///|
+/// Reuse the configured advisor and its bounded evidence/privacy boundary.
+/// Never put translated prose back into an executable deployment plan.
+pub async fn enrich_beginner_guide(
+  report_path : String,
+  allow_send : Bool,
+) -> Json {
+  let report = @json.parse(@fs.read_file_to_string(report_path))
+  guard report is Object(fields) &&
+    fields.get("root") is Some(String(root)) &&
+    fields.get("report_dir") is Some(String(report_dir)) else {
+    raise DeploymentError("报告缺少项目目录或报告目录。")
+  }
+  let canonical_report = @afs.realpath(report_path[:])
+  let parts = canonical_report
+    .replace_all(old="\\", new="/")
+    .split("/")
+    .map(p => p.to_owned())
+    .collect()
+  let _ = parts.pop()
+  guard @afs.realpath(report_dir[:]) == @afs.realpath(parts.join("/")[:]) else {
+    raise DeploymentError("报告目录与文件位置不一致。")
+  }
+  if !allow_send &&
+    !@host.prompt(
+      "是否把项目 README 和已知清单的有限内容发送给已配置的 AI，生成中文小白指南？可能产生服务费用；不会发送密钥配置，也不会执行返回内容。",
+    ) {
+    return { "status": "cancelled", "executed": false }
+  }
+  let response = @advisor.analyze(
+    root, "用自然中文面向第一次使用这个项目的人解释作者 README：项目用途、前置条件、安装与使用顺序、配置字段含义和注意事项。忠实翻译英文，保留产品名。不要捏造步骤、密钥或本机成功状态；不要生成新的 shell 命令。summary 写用途，recommendation 写按顺序的中文操作说明，evidence 引用来源，risks 写未验证或缺失的信息。",
+    true,
+  ) catch {
+    error =>
+      return {
+        "status": "unavailable",
+        "detail": @host.redact("\{error}"),
+        "offline_guide_preserved": true,
+      }
+  }
+  guard response is Object(response_fields) &&
+    response_fields.get("answer") is Some(Object(answer)) else {
+    raise DeploymentError(
+      "AI 返回缺少有效指南；原离线指南保持不动。",
+    )
+  }
+  let body = render_chinese_guide(Json::object(answer))
+  let path = @host.join(report_dir, "beginner_guide.zh-CN.md")
+  @fs.write_string_to_file(path, @host.redact(body))
+  {
+    "status": "generated",
+    "path": path,
+    "executed": false,
+    "offline_guide_preserved": true,
+  }
+}
+
+///|
+pub fn render_chinese_guide(answer : Json) -> String raise {
+  guard answer is Object(fields) &&
+    fields.get("summary") is Some(String(summary)) &&
+    fields.get("recommendation") is Some(String(recommendation)) else {
+    raise DeploymentError("AI 指南格式无效；不覆盖现有报告。")
+  }
+  "# 中文小白指南\n\n根据作者 README 由 AI 翻译、化简；未经执行验证。实际运行状态以 deployment.json 为准。\n\n" +
+  summary +
+  "\n\n## 使用步骤\n\n" +
+  recommendation +
+  "\n\n## 来源与限制\n\n```json\n" +
+  answer.stringify(indent=2) +
+  "\n```\n"
+}
+
+///|
 fn write_beginner_guide(
   root : String,
   report_dir : String,
@@ -66,7 +139,7 @@ fn write_beginner_guide(
     action +
     "\n\n## 作者说明\n\n来源：`" +
     source +
-    "`。以下为原文摘录，未翻译，也不代表本机已验证；不要将其中的命令当成自动执行授权。\n\n" +
+    "`。以下为原文摘录，未翻译，也不代表本机已验证；不要将其中的命令当成自动执行授权。需要中文化简时，双击本目录的 `生成中文小白指南.bat`，确认发送范围后使用已配置的 AI。\n\n" +
     readme_usage_excerpt(readme),
   )
 }

@@ -143,6 +143,7 @@ fn print_help() -> Unit {
       #|ai-config [--endpoint URL --model NAME]      查看 AI 设置或安全配置密钥
       #|analyze PATH --allow-send                    发送有限仓库上下文给已配置 AI
       #|diagnose REPORT [--allow-send]               本地诊断，按需使用 AI
+      #|guide REPORT [--allow-send]                  将作者说明翻译为中文使用指南
       #|uninstall [--confirm]                        查看或确认工具登记的卸载
       #|
       #|TARGET 支持本地目录、owner/repo、公开 GitHub 仓库 URL。
@@ -288,6 +289,14 @@ async fn entry() -> Unit {
         ).stringify(indent=2),
       )
     }
+    return
+  }
+  if action == "guide" {
+    println(
+      @runtime.enrich_beginner_guide(target, args.contains("--allow-send")).stringify(
+        indent=2,
+      ),
+    )
     return
   }
   if action == "resume" {
