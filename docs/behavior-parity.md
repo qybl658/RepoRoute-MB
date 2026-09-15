@@ -11,7 +11,7 @@
 | `detect_eol_debian_dockerfile` / `prepare_eol_docker_repair` | `runtime/docker_repair.mbt`、部署入口 | 默认 Dockerfile 的已知 Bullseye 配方经确认生成报告内副本，构建显式使用 `--file`。原文件不变；摘要固定镜像和仅注释匹配不自动处理。源码及离线命令链通过，不等于新版镜像业务兼容已验证 |
 | WSL 重启等待标记 / `resume_deployment.ps1` | `environment/environment.mbt`、`runtime.resume` | 已实现启动周期识别、防重复、重启后重新探测、不确定结果保留；源码状态分支通过，真实新机/UAC/重启仍待对应环境验收。Windows 可选功能的完整提权引导尚未全部对应 |
 | `local_readme_beginner_digest` / 下一步指导 | `runtime/beginner_guide.mbt` | 报告按状态给下一步并引用 README 安装/使用章节；原文摘录不执行，未实现原版完整 AI 翻译/化简流程 |
-| 项目配置保留、环境归属及卸载 | `runtime/config.mbt`、`environment/` | 已有配置保护与应用本地工具验证；系统级卸载仍需相应真实环境验收 |
+| 项目配置保留、环境归属及卸载 | `runtime/configuration.mbt`、`environment/` | 已有配置保护与应用本地工具验证；系统级卸载仍需相应真实环境验收 |
 | 报告、续跑、计划变更拒绝 | `runtime/deploy.mbt` | 八项部署回归及报告入口验证已覆盖；重启后仍需探测，不能从旧收据推断就绪 |
 | 依赖缺失修复 / `infer_repair` | `runtime/repair.mbt` | 明确 Python 包映射已实现；与原版其余修复分支尚未完全对齐，不接受任意缺包名称直接安装 |
 | 模型规划、诊断与安全边界 | `advisor/`、`ai_plan.mbt` | 结构化 README 计划与离线校验已有测试；实际模型账户端到端未据此验证 |
