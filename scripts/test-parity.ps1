@@ -89,3 +89,6 @@ exit /b 0
   if($LASTEXITCODE -ne 20 -or $mismatch -notmatch 'WAITING_ENVIRONMENT' -or $mismatch -match '\[start\]'){throw "Wrong Python was executed: $mismatch"}
   [pscustomobject]@{status='passed';cases=@('one-shot-mirror-success','mirror-refusal','author-readme-guide','ai-guide-refusal','vite-repair-relaunch','docker-repair-build-route','docker-refusal-no-execution','python-backup-rebuild-rollback','python-version-wait');evidence=$root}|ConvertTo-Json
 } finally { $env:REPOWAYFINDER_HOME=$saved; $env:USERPROFILE=$savedProfile }
+# Expected nonzero application exits were asserted above. Do not leak the last
+# WAITING_ENVIRONMENT exit into GitHub Actions' PowerShell success epilogue.
+$global:LASTEXITCODE = 0
