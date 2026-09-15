@@ -39,4 +39,20 @@ if ($process.ExitCode -ne 0 -or -not $output.Contains($success) -or -not $log.Co
 if ($log -match 'Transcript|Start-Transcript' -or $log.Contains([string]::Concat([char]0x8F93,[char]0x8F93))) { throw 'Duplicated/transcript output in run.md.' }
 if ($log.Contains('__RWF_WAIT') -or $output.Contains('__RWF_WAIT')) { throw 'Internal progress frames leaked into output/log.' }
 if (-not $output.Contains([string]::Concat([char]0x5DF2,[char]0x7B49,[char]0x5F85))) { throw 'No waiting animation during slow project execution.' }
+$noEntry=Join-Path $testRoot 'no-entry'
+New-Item -ItemType Directory -Path $noEntry | Out-Null
+$savedKey=$env:REPOWAYFINDER_AI_API_KEY
+$savedBase=$env:REPOWAYFINDER_AI_BASE_URL
+$savedWork=$env:REPOWAYFINDER_HOME
+try {
+    $env:REPOWAYFINDER_AI_API_KEY='synthetic-never-sent'
+    $env:REPOWAYFINDER_AI_BASE_URL='https://example.invalid/v1'
+    $env:REPOWAYFINDER_HOME=$testRoot
+    $fallback=@($noEntry,'n') | & $Executable 2>&1 | Out-String
+    if($LASTEXITCODE -ne 0 -or $fallback -notmatch 'API' -or $fallback -match 'example.invalid'){throw "Interactive AI decline did not preserve local fallback: $fallback"}
+} finally {
+    $env:REPOWAYFINDER_AI_API_KEY=$savedKey
+    $env:REPOWAYFINDER_AI_BASE_URL=$savedBase
+    $env:REPOWAYFINDER_HOME=$savedWork
+}
 [pscustomobject]@{status='passed'; evidence=$testRoot; exit_code=$process.ExitCode} | ConvertTo-Json

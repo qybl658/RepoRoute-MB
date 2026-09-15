@@ -356,15 +356,74 @@ async fn entry() -> Unit {
     return
   }
   let selected = value(args, "--candidate", "")
-  if args.contains("--ai-plan") {
+  let mut use_ai_plan = args.contains("--ai-plan")
+  let mut use_ai_choice = args.contains("--ai")
+  let mut allow_ai_send = args.contains("--allow-send")
+  if interactive && selected.is_empty() {
+    let count = @lib.scan(root, @runtime.collect(root)).candidates.length()
+    let configured = @advisor.get_settings() catch { _ => Json::null() }
+    if (count == 0 || count > 1) &&
+      configured is Object(settings) &&
+      settings.get("configured") == Some(Json(true)) {
+      if @host.prompt(
+          "本地扫描未找到唯一明确入口。是否让已配置的 AI 根据 README 协助选择或提出计划？只发送有限说明与清单，可能产生 API 费用；计划仍需校验，拒绝则继续本地流程。",
+        ) {
+        allow_ai_send = true
+        use_ai_plan = count == 0
+        use_ai_choice = count > 1
+      }
+    }
+  }
+  if use_ai_plan {
     let proposal = @advisor.propose_deployment_plan(
       root,
       value(args, "--question", "Run the documented project demo or service."),
-      args.contains("--allow-send"),
-    )
+      allow_ai_send,
+    ) catch {
+      error =>
+        if interactive {
+          println(
+            "AI 规划暂不可用；保留本地阅读指导，没有执行猜测命令。",
+          )
+          finish(
+            @runtime.deploy(
+              root,
+              None,
+              false,
+              false,
+              false,
+              "",
+              false,
+              true,
+              None,
+            ),
+            true,
+          )
+          return
+        } else {
+          raise error
+        }
+    }
     println(proposal.to_json().stringify(indent=2))
     if proposal.to_json() is Object(fields) &&
       fields.get("action") != Some(Json("DEPLOY")) {
+      if interactive &&
+        @lib.scan(root, @runtime.collect(root)).candidates.is_empty() {
+        finish(
+          @runtime.deploy(
+            root,
+            None,
+            false,
+            false,
+            false,
+            "",
+            false,
+            true,
+            None,
+          ),
+          true,
+        )
+      }
       return
     }
     if !execute {
@@ -388,12 +447,12 @@ async fn entry() -> Unit {
       @runtime.deploy_ai(
         proposal,
         true,
-        args.contains("--install"),
+        args.contains("--install") || interactive,
         value(args, "--health-url", ""),
-        args.contains("--serve"),
+        args.contains("--serve") || interactive,
         mode,
       ),
-      false,
+      interactive,
     )
     return
   }
@@ -402,15 +461,13 @@ async fn entry() -> Unit {
   } else {
     Some(@string.parse_int(selected[:]) - 1)
   }
-  if index is None && args.contains("--ai") {
+  if index is None && use_ai_choice {
     let candidates = @lib.scan(root, @runtime.collect(root)).candidates.map(c => {
       c.command + " — " + c.reason
     })
     index = @advisor.choose_candidate(
-      root,
-      "Choose a reproducible deployment route for this machine.",
-      candidates,
-      args.contains("--allow-send"),
+      root, "Choose a reproducible deployment route for this machine.", candidates,
+      allow_ai_send,
     ) catch {
       _ => {
         println(
