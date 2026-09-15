@@ -69,6 +69,33 @@ test "WSL exit zero does not override localized readiness blockers" {
 }
 
 ///|
+test "WSL restart marker expires only after a different known boot" {
+  let marker =
+    #|{"owner":"RepoWayfinder-MB","action":"wsl --update","state":"restart_required","boot_id":"2026-09-15T00:00:00Z"}
+  assert_eq(wsl_marker_disposition(marker, "2026-09-15T00:00:00Z"), "same_boot")
+  assert_eq(wsl_marker_disposition(marker, "2026-09-15T01:00:00Z"), "stale")
+  assert_eq(wsl_marker_disposition(marker, ""), "same_boot")
+}
+
+///|
+test "uncertain or legacy WSL markers never authorize automatic replay" {
+  let uncertain =
+    #|{"owner":"RepoWayfinder-MB","action":"wsl --install --no-distribution","state":"uncertain","boot_id":"old"}
+  let legacy =
+    #|{"owner":"RepoWayfinder-MB","action":"wsl --update","state":"started_or_waiting"}
+  assert_eq(wsl_marker_disposition(uncertain, "new"), "uncertain")
+  assert_eq(wsl_marker_disposition(legacy, "new"), "uncertain")
+  assert_eq(wsl_marker_disposition("not json", "new"), "uncertain")
+  assert_eq(
+    wsl_marker_disposition(
+      uncertain.replace_all(old="RepoWayfinder-MB", new="other-owner"),
+      "new",
+    ),
+    "uncertain",
+  )
+}
+
+///|
 test "Windows Docker distinguishes CLI-only from stopped Desktop" {
   assert_eq(classify_windows_docker(1, 1, 1), "broken")
   assert_eq(classify_windows_docker(0, 0, 1), "ready")

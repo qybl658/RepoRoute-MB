@@ -10,6 +10,8 @@ pub fn transient_network_failure(text : String) -> Bool {
   [
     "connection timed out", "temporary failure", "tls handshake timeout", "connection reset",
     "network is unreachable", "could not resolve host", "failed to fetch oauth token",
+    "read timed out", "proxyerror", "getaddrinfo failed", "econnreset", "etimedout",
+    "eai_again",
   ].any(s => lower.contains(s[:]))
 }
 

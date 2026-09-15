@@ -1445,6 +1445,76 @@ fn wsl_waiting_marker_path() -> String {
 }
 
 ///|
+/// A completed WSL maintenance command may legitimately need one Windows
+/// restart. It suppresses repeats only during that same boot. An uncertain
+/// command remains blocked across boots because replaying it could duplicate a
+/// system change whose result was never observed.
+fn wsl_marker_disposition(content : String, current_boot_id : String) -> String {
+  guard (@json.parse(content) catch { _ => Json::null() }) is Object(object) &&
+    object_string(object, "owner") == Some("RepoWayfinder-MB") &&
+    object_string(object, "state") is Some(state) else {
+    return "uncertain"
+  }
+  if state == "uncertain" || state == "started_or_waiting" {
+    return "uncertain"
+  }
+  if state != "restart_required" {
+    return "uncertain"
+  }
+  guard object_string(object, "boot_id") is Some(marker_boot_id) &&
+    !marker_boot_id.trim().is_empty() &&
+    !current_boot_id.trim().is_empty() else {
+    return "same_boot"
+  }
+  if marker_boot_id.trim() == current_boot_id.trim() {
+    "same_boot"
+  } else {
+    "stale"
+  }
+}
+
+///|
+async fn windows_boot_id(cwd : String) -> String {
+  guard @host.resolve("powershell") is Some(powershell) else { return "" }
+  let result = @host.run(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "try { (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime().ToString('o') } catch { exit 1 }",
+    ],
+    cwd,
+    15000,
+  )
+  if result.code == 0 && !result.timed_out {
+    result.output.trim().to_owned()
+  } else {
+    ""
+  }
+}
+
+///|
+fn write_wsl_marker(
+  path : String,
+  action : String,
+  state : String,
+  boot_id : String,
+) -> Bool {
+  try {
+    @fs.write_string_to_file(
+      path,
+      Json({
+        "owner": "RepoWayfinder-MB",
+        "action": action,
+        "state": state,
+        "boot_id": boot_id,
+      }).stringify(indent=2),
+    )
+    true
+  } catch {
+    _ => false
+  }
+}
+
+///|
 async fn repair_docker(cwd : String, allow_install : Bool) -> Bool {
   guard @host.windows() else {
     println(
@@ -1509,13 +1579,30 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
     }
     return true
   }
-  if @fs.path_exists(wsl_waiting_marker_path()) ||
-    read_receipt("wsl") is Some(_) {
-    println(
-      "WAITING_ENVIRONMENT: 之前的 WSL 官方安装/更新命令已经完成，但 WSL 状态仍未就绪。RepoWayfinder 不会重复执行；请完成 Windows 设置，或在系统要求时重启，然后重试。\n" +
-      status.output,
+  let waiting_marker = wsl_waiting_marker_path()
+  if @fs.path_exists(waiting_marker) {
+    let marker_content = @fs.read_file_to_string(waiting_marker) catch {
+      _ => ""
+    }
+    let disposition = wsl_marker_disposition(
+      marker_content,
+      windows_boot_id(cwd),
     )
-    return false
+    if disposition == "stale" {
+      // The restart happened. Remove only the obsolete wait marker and decide
+      // from the fresh wsl --status evidence below; ownership receipts remain.
+      @fs.remove_file(waiting_marker) catch {
+        _ => ()
+      }
+    } else {
+      let explanation = if disposition == "same_boot" {
+        "之前的 WSL 官方命令已在本次 Windows 启动周期完成；在重启前不会重复执行。"
+      } else {
+        "之前的 WSL 官方命令结果不确定；为避免重复系统变更，不会自动重放。请先人工核对 WSL 状态和该检查点。"
+      }
+      println("WAITING_ENVIRONMENT: " + explanation + "\n" + status.output)
+      return false
+    }
   }
   let action = wsl_repair_action(status.code, status.output, status.timed_out)
   if action == "manual" {
@@ -1569,27 +1656,26 @@ async fn repair_wsl(cwd : String, allow_install : Bool) -> Bool {
     return false
   }
   guard ensure_tool_root() else { return false }
-  let waiting_marker = wsl_waiting_marker_path()
-  @fs.write_string_to_file(
-    waiting_marker,
-    Json({
-      "owner": "RepoWayfinder-MB",
-      "action": command_text,
-      "state": "started_or_waiting",
-    }).stringify(indent=2),
-  ) catch {
-    _ => {
-      println(
-        "WAITING_ENVIRONMENT: 无法写入 WSL 防重复执行检查点，因此没有执行系统命令。",
-      )
-      return false
-    }
+  let boot_id = windows_boot_id(cwd)
+  if !write_wsl_marker(waiting_marker, command_text, "uncertain", boot_id) {
+    println(
+      "WAITING_ENVIRONMENT: 无法写入 WSL 防重复执行检查点，因此没有执行系统命令。",
+    )
+    return false
   }
   let result = @host.run(wsl, args, cwd, 600000)
   if result.code != 0 || result.timed_out {
     println(
       "WAITING_ENVIRONMENT: `\{command_text}` 未能完成。为避免在结果不确定时重复执行，检查点已保留；没有尝试其他安装器、自动回应 UAC 或重启。请先核对 WSL 状态，再检查或移除该文件：\{waiting_marker}\n" +
       result.output,
+    )
+    return false
+  }
+  if !write_wsl_marker(
+      waiting_marker, command_text, "restart_required", boot_id,
+    ) {
+    println(
+      "WAITING_ENVIRONMENT: WSL 命令已返回成功，但无法持久化安全续跑状态。请先人工核对 WSL 状态；不会在本次运行中重复命令。",
     )
     return false
   }

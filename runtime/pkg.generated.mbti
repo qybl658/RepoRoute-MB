@@ -2,6 +2,7 @@
 package "qybl658/repowayfinder_mbt/runtime"
 
 import {
+  "moonbitlang/core/debug",
   "qybl658/repowayfinder_mbt",
 }
 
@@ -18,15 +19,23 @@ pub async fn deploy_ai(@repowayfinder_mbt.AiDeploymentProposal, Bool, Bool, Stri
 
 pub async fn deployment_mode(Bool, Bool) -> Bool
 
+pub fn detect_eol_debian_dockerfile(String, Bool) -> DockerEolDiagnosis?
+
 pub fn diagnose(String) -> Json raise
 
 pub fn missing_known_python_package(String) -> String?
 
 pub fn normalize_ai_plan(@repowayfinder_mbt.AiDeploymentProposal, Bool) -> @repowayfinder_mbt.DeploymentPlan raise
 
+pub fn package_mirror_args(String, Array[String]) -> Array[String]?
+
 pub async fn prepare_compose(Json, String, Bool) -> Json
 
+pub fn prepare_eol_docker_repair(String, String, Bool, Bool) -> DockerRepairResult raise
+
 pub async fn probe(String, Array[String], String) -> Int
+
+pub fn readme_usage_excerpt(String) -> String
 
 pub async fn resume_deployment(String, Bool, Bool, Bool, Bool) -> Json
 
@@ -38,6 +47,19 @@ pub(all) suberror DeploymentError {
 }
 
 // Types and methods
+pub(all) struct DockerEolDiagnosis {
+  suite : String
+  successor : String
+  public_lts_ended : String
+} derive(Eq, ToJson, @debug.Debug)
+
+pub(all) struct DockerRepairResult {
+  status : String
+  diagnosis : DockerEolDiagnosis?
+  repair_path : String
+  replacement : String
+  original_repository_modified : Bool
+} derive(Eq, ToJson, @debug.Debug)
 
 // Type aliases
 

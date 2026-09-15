@@ -84,6 +84,7 @@ fn save(
     @host.redact(report.stringify(indent=2)) +
     "\n```\n"
   @fs.write_string_to_file(@host.join(report_dir, "README.md"), guide)
+  write_beginner_guide(root, report_dir, status, health)
   report
 }
 
@@ -166,6 +167,7 @@ pub async fn deploy(
   }
   let attempts : Array[Json] = []
   let mut compose_runtime = ""
+  let mut docker_repair_path = ""
   let task_name = "repowayfinder-mb-" + @env.now().to_string()
   if @host.windows() {
     let executable = @afs.realpath(@env.args()[0][:])
@@ -236,6 +238,41 @@ pub async fn deploy(
   println(
     "项目配置已检查：已有配置保持不变，缺失模板按需生成。",
   )
+  if plan.candidate.ecosystem == "docker" {
+    let source = @host.join(root, "Dockerfile")
+    let content = @fs.read_file_to_string(source) catch { _ => "" }
+    if detect_eol_debian_dockerfile(content, true) is Some(_) {
+      if !@host.prompt(
+          "Dockerfile 使用已过公共 LTS 期限的 Debian Bullseye 及其旧软件源。是否在本次报告内生成 Bookworm 修复副本并使用它构建？基础系统版本会改变；原项目文件保持不动。",
+        ) {
+        return save(
+          report_dir,
+          root,
+          plan.candidate_index,
+          "WAITING_ENVIRONMENT",
+          "已暂停：等待确认 Dockerfile 配方修复，尚未执行项目命令。",
+          attempts,
+          plan.to_json(),
+          health,
+        )
+      }
+      let repair = prepare_eol_docker_repair(source, report_dir, true, true)
+      if repair.status != "isolated_repair_created" {
+        return save(
+          report_dir,
+          root,
+          plan.candidate_index,
+          "WAITING_ENVIRONMENT",
+          "没有生成有效修复副本，未执行构建。",
+          attempts,
+          plan.to_json(),
+          health,
+        )
+      }
+      docker_repair_path = repair.repair_path
+      attempts.push({ "phase": "docker-recipe-repair", "repair": repair })
+    }
+  }
   for step in plan.steps {
     if step.phase != "preflight" {
       continue
@@ -290,6 +327,13 @@ pub async fn deploy(
       step.args.insert(1, "--project-name")
       step.args.insert(2, task_name)
     }
+    if step.phase == "build" &&
+      step.program == "docker" &&
+      step.args[0] == "build" &&
+      !docker_repair_path.is_empty() {
+      step.args.insert(1, "--file")
+      step.args.insert(2, docker_repair_path)
+    }
     println("[" + step.phase + "] " + step.program + " " + step.args.join(" "))
     if step.phase == "start" {
       let initial = launch(step, root, health, serve, task_name)
@@ -342,6 +386,24 @@ pub async fn deploy(
         "retry_reason": "recognized transient transport failure; one bounded retry",
       })
       result = @host.run(step.program, step.args, root, 600000)
+    }
+    if result.code != 0 {
+      if retry_package_mirror(root, step, result, allow_install)
+        is Some((retried, mirror_args)) {
+        attempts.push({
+          "phase": "install-before-mirror",
+          "program": step.program,
+          "args": step.args,
+          "result": result,
+        })
+        attempts.push({
+          "phase": "install-public-mirror",
+          "program": step.program,
+          "args": mirror_args,
+          "result": retried,
+        })
+        result = retried
+      }
     }
     if step.phase == "validate-compose" {
       if result.code != 0 {

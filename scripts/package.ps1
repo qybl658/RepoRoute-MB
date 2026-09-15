@@ -28,7 +28,7 @@ try {
         [IO.File]::WriteAllText($batch.FullName, ($text -replace "`r?`n", "`r`n"), [Text.UTF8Encoding]::new($false))
     }
     # Only tracked fixture files; never copy node_modules, virtualenvs or runtime reports.
-    $fixtures = & git ls-files examples
+    $fixtures = & git ls-files examples docs
     foreach ($relative in $fixtures) {
         $destination = Join-Path $packageRoot $relative
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null

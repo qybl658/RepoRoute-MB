@@ -64,3 +64,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-interactive.ps1
+
+      - name: Verify offline recovery routes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-parity.ps1 -Executable ./_build/native/debug/build/cmd/main/main.exe

@@ -4,7 +4,7 @@
 
 Windows 部署端到端检查覆盖八项行为；另有源码测试、真实 Docker 检查和从 ZIP 解压后的启动验收。
 
-本次集成的 MoonBit 原生测试：62/62 通过，`moon check --deny-warn` 与原生构建通过。
+本次集成的 MoonBit 原生测试：71/71 通过，`moon check --deny-warn` 与原生构建通过。原版迁移范围与差异见 [行为对照](behavior-parity.md)。
 
 ## 已实际执行
 
